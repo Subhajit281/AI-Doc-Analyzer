@@ -1,0 +1,110 @@
+.upload-state {
+  flex: 1;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  gap: 16px;
+
+  padding: 24px;
+
+  background: linear-gradient(
+    135deg,
+    #edf5ff 0%,
+    #e3efff 50%,
+    #d6e8ff 100%
+  );
+}
+
+
+/* ============================================================
+   UPLOAD CARD
+   ============================================================ */
+
+.upload-state-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  gap: 10px;
+
+  padding: 44px 64px;
+
+  border: 3px dashed #3a3a3a;
+
+  border-radius: 16px;
+
+  background: #f8fbff;
+
+  cursor: pointer;
+
+  color: #4a4a4a;
+
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+
+.upload-state-card:hover,
+.upload-state-card:focus-visible {
+  border-color: #111111;
+
+  background-color: #eef6ff;
+
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.08);
+
+  outline: none;
+
+  transform: translateY(-1px);
+}
+
+
+/* ============================================================
+   TITLE
+   ============================================================ */
+
+.upload-state-title {
+  font-size: 16px;
+
+  font-weight: 600;
+
+  color: #111111;
+
+  margin: 0;
+}
+
+
+/* ============================================================
+   SUBTITLE
+   ============================================================ */
+
+.upload-state-sub {
+  font-size: 13px;
+
+  margin: 0;
+
+  color: #555555;
+}
+
+
+/* ============================================================
+   ERROR
+   ============================================================ */
+
+.upload-state-error {
+  display: flex;
+  align-items: center;
+
+  gap: 6px;
+
+  font-size: 13px;
+
+  color: #b42323;
+
+  font-weight: 500;
+}

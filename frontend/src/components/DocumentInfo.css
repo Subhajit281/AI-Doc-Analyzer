@@ -1,0 +1,196 @@
+.document-info-bar {
+  flex-shrink: 0;
+  padding: 9px 16px;
+  overflow: hidden;
+
+  background: linear-gradient(
+    90deg,
+    #d7eaff 0%,
+    #c9e2ff 50%,
+    #d7eaff 100%
+  );
+
+  border-bottom: 1px solid hsl(212, 100%, 93%);
+}
+
+.document-info-scroll {
+  display: flex;
+  gap: 9px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #7aaee8 transparent;
+}
+
+.document-info-scroll::-webkit-scrollbar {
+  height: 5px;
+}
+
+.document-info-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.document-info-scroll::-webkit-scrollbar-thumb {
+  background: #7aaee8;
+  border-radius: 10px;
+}
+
+
+/* ============================================================
+   DOCUMENT CHIP
+   ============================================================ */
+
+.doc-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+
+  padding: 7px 13px;
+
+  border-radius: 999px;
+
+  border: 1px solid #7eb3ed;
+
+  background: #dfeeff;
+
+  color: #041222;
+
+  font-size: 12px;
+  font-weight: 500;
+
+  white-space: nowrap;
+  cursor: pointer;
+
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+
+  flex-shrink: 0;
+}
+
+.doc-chip:hover {
+  border-color: #3f8fe8;
+
+  background: #b5d5f8;
+
+  color: #0d3157;
+
+  box-shadow: 0 2px 8px rgba(42, 112, 184, 0.16);
+
+  transform: translateY(-1px);
+}
+
+
+/* ============================================================
+   ACTIVE DOCUMENT
+   ============================================================ */
+
+.doc-chip-active {
+  border-color: #468dd9;
+
+  background: linear-gradient(
+    135deg,
+    #8abfef 0%,
+    #56a8f5 100%
+  );
+
+  color: #041221;
+
+  font-weight: 600;
+
+  box-shadow:
+    0 2px 8px rgba(36, 120, 209, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.doc-chip-active:hover {
+  border-color: #3375bb;
+
+  background: linear-gradient(
+    135deg,
+    #91c3f1 0%,
+    #84b1e2 100%
+  );
+
+  color: #1c4671;
+}
+
+
+/* ============================================================
+   DOCUMENT NAME
+   ============================================================ */
+
+.doc-chip-name {
+  max-width: 180px;
+
+  overflow: hidden;
+
+  text-overflow: ellipsis;
+
+  color: inherit;
+}
+
+
+/* ============================================================
+   ERROR STATE
+   ============================================================ */
+
+.doc-chip-error {
+  border-color: #e05a5a;
+
+  background: #ffe0e0;
+
+  color: #a52323;
+}
+
+.doc-chip-error:hover {
+  border-color: #c83f3f;
+
+  background: #ffd1d1;
+
+  color: #8f1d1d;
+}
+
+.doc-chip-error .doc-chip-status {
+  color: #d33f3f;
+}
+
+
+/* ============================================================
+   STATUS ICON
+   ============================================================ */
+
+.doc-chip-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  color: #16804a;
+
+  flex-shrink: 0;
+}
+
+
+/* ============================================================
+   PROCESSING SPINNER
+   ============================================================ */
+
+.doc-chip-spin {
+  animation: doc-chip-spin 0.9s linear infinite;
+
+  color: #2478d1;
+
+  flex-shrink: 0;
+}
+
+@keyframes doc-chip-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
