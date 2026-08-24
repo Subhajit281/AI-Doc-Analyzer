@@ -1,17 +1,9 @@
 import json
 import uuid
 from pathlib import Path
+from threading import Lock
 
 from fastapi import UploadFile
-
-from app.validation.validator import DocumentValidator
-from app.parser.docling_parser import DoclingParser
-from app.sections.extractor import (
-    SectionExtractor,
-)
-from app.chunking.chunker import DocumentChunker
-from app.embeddings.embedder import DocumentEmbedder
-from app.vectorstore.chroma_store import ChromaVectorStore
 
 
 # ============================================================
@@ -114,20 +106,102 @@ class DocumentService:
     def __init__(self):
 
         # ----------------------------------------------------
-        # Existing RAG components
+        # IMPORTANT:
+        # Do NOT initialize heavy ML components here.
+        #
+        # This constructor runs when the application imports
+        # this module.
         # ----------------------------------------------------
 
-        self.validator = DocumentValidator()
+        self.validator = None
+        self.parser = None
+        self.extractor = None
+        self.chunker = None
+        self.embedder = None
+        self.vector_store = None
 
-        self.parser = DoclingParser()
+        # Prevent multiple simultaneous initializations
+        # if multiple requests arrive at startup.
+        self._initialization_lock = Lock()
 
-        self.extractor = SectionExtractor()
+        self._initialized = False
 
-        self.chunker = DocumentChunker()
+    # ========================================================
+    # Lazy Initialization
+    # ========================================================
 
-        self.embedder = DocumentEmbedder()
+    def _initialize(self):
+        """
+        Initialize heavy document-processing components
+        only when they are actually needed.
 
-        self.vector_store = ChromaVectorStore()
+        This keeps FastAPI startup fast enough for platforms
+        such as Render to detect the application port.
+        """
+
+        if self._initialized:
+            return
+
+        with self._initialization_lock:
+
+            # Another request may have initialized everything
+            # while this request was waiting for the lock.
+            if self._initialized:
+                return
+
+            print(
+                "Initializing document processing pipeline..."
+            )
+
+            # ------------------------------------------------
+            # Import heavy modules only when required.
+            # ------------------------------------------------
+
+            from app.validation.validator import (
+                DocumentValidator,
+            )
+
+            from app.parser.docling_parser import (
+                DoclingParser,
+            )
+
+            from app.sections.extractor import (
+                SectionExtractor,
+            )
+
+            from app.chunking.chunker import (
+                DocumentChunker,
+            )
+
+            from app.embeddings.embedder import (
+                DocumentEmbedder,
+            )
+
+            from app.vectorstore.chroma_store import (
+                ChromaVectorStore,
+            )
+
+            # ------------------------------------------------
+            # Initialize components
+            # ------------------------------------------------
+
+            self.validator = DocumentValidator()
+
+            self.parser = DoclingParser()
+
+            self.extractor = SectionExtractor()
+
+            self.chunker = DocumentChunker()
+
+            self.embedder = DocumentEmbedder()
+
+            self.vector_store = ChromaVectorStore()
+
+            self._initialized = True
+
+            print(
+                "Document processing pipeline initialized."
+            )
 
     # ========================================================
     # Process Document
@@ -137,6 +211,13 @@ class DocumentService:
         self,
         file: UploadFile,
     ):
+
+        # ====================================================
+        # Initialize heavy components only when a document
+        # actually needs to be processed.
+        # ====================================================
+
+        self._initialize()
 
         # ====================================================
         # 1. Generate document ID
@@ -379,9 +460,12 @@ class DocumentService:
 # Singleton Service
 # ============================================================
 
-document_service = (
-    DocumentService()
-)
+# This is now SAFE.
+#
+# It only creates the lightweight DocumentService object.
+# Heavy ML components are NOT loaded here.
+#
+document_service = DocumentService()
 
 
 # ============================================================
