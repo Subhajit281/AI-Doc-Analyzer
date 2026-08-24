@@ -1,16 +1,11 @@
 import json
 from pathlib import Path
+from threading import Lock
 from types import SimpleNamespace
 
 from langchain_core.messages import HumanMessage
 
 from app.agent.graph import create_agent_graph
-from app.embeddings.embedder import DocumentEmbedder
-from app.vectorstore.chroma_store import ChromaVectorStore
-from app.sections.extractor import (
-    DocumentSection,
-    DocumentElement,
-)
 
 
 # ============================================================
@@ -24,228 +19,259 @@ DOCUMENT_STORAGE = (
 )
 
 
+# ============================================================
+# Helpers
+# ============================================================
+
+def _item_from_dict(item_data):
+    """
+    Reconstruct a lightweight document item from
+    the serialized manifest representation.
+    """
+
+    return SimpleNamespace(
+        text=item_data.get("text", ""),
+        label=item_data.get("label"),
+        page=item_data.get("page"),
+    )
+
+
+def _section_from_dict(section_data):
+    """
+    Reconstruct a DocumentSection-compatible object
+    from manifest.json.
+
+    The agent tools only require the section attributes,
+    so SimpleNamespace is sufficient here.
+    """
+
+    section = SimpleNamespace(
+        title=section_data.get("title", ""),
+        page=section_data.get("page"),
+        level=section_data.get("level", 0),
+        items=[],
+        children=[],
+    )
+
+    section.items = [
+        _item_from_dict(item)
+        for item in section_data.get("items", [])
+    ]
+
+    section.children = [
+        _section_from_dict(child)
+        for child in section_data.get("children", [])
+    ]
+
+    return section
+
+
+def _load_manifest(document_id):
+    """
+    Load the persisted document structure.
+
+    The manifest is created during document upload,
+    so querying does not require running Docling again.
+    """
+
+    document_directory = (
+        DOCUMENT_STORAGE / document_id
+    )
+
+    manifest_path = (
+        document_directory / "manifest.json"
+    )
+
+    if not manifest_path.exists():
+        raise FileNotFoundError(
+            f"Document '{document_id}' was not found."
+        )
+
+    try:
+
+        with open(
+            manifest_path,
+            "r",
+            encoding="utf-8",
+        ) as file:
+
+            manifest = json.load(file)
+
+    except json.JSONDecodeError as exc:
+
+        raise ValueError(
+            "Document manifest is corrupted."
+        ) from exc
+
+    return manifest
+
+
+def _build_parsed_document(manifest):
+    """
+    Reconstruct the lightweight parsed-document
+    object required by MetadataTool.
+    """
+
+    return SimpleNamespace(
+        source=manifest.get(
+            "source",
+            manifest.get("filename", ""),
+        ),
+        pages=manifest.get(
+            "pages",
+            0,
+        ),
+    )
+
+
+def _build_sections(manifest):
+    """
+    Reconstruct the section hierarchy from
+    manifest.json.
+    """
+
+    return [
+        _section_from_dict(section)
+        for section in manifest.get(
+            "sections",
+            [],
+        )
+    ]
+
+
+def _extract_answer(result):
+    """
+    Extract the final assistant response from
+    the LangGraph state.
+    """
+
+    messages = result.get(
+        "messages",
+        [],
+    )
+
+    if not messages:
+        return "I could not generate an answer."
+
+    # Walk backwards because the final message should
+    # contain the agent's final response.
+    for message in reversed(messages):
+
+        content = getattr(
+            message,
+            "content",
+            None,
+        )
+
+        if content:
+
+            # Gemini/LangChain normally returns a string.
+            if isinstance(content, str):
+                return content.strip()
+
+            # Some providers may return structured content.
+            if isinstance(content, list):
+
+                text_parts = []
+
+                for part in content:
+
+                    if isinstance(part, str):
+                        text_parts.append(part)
+
+                    elif isinstance(part, dict):
+
+                        text = part.get("text")
+
+                        if text:
+                            text_parts.append(text)
+
+                if text_parts:
+                    return "\n".join(
+                        text_parts
+                    ).strip()
+
+    return "I could not generate an answer."
+
+
+# ============================================================
+# Query Service
+# ============================================================
+
 class QueryService:
 
     def __init__(self):
 
-        # These are intentionally lazy.
-        # We don't want to load the embedding model
-        # when the backend starts.
+        # ----------------------------------------------------
+        # IMPORTANT:
+        #
+        # Do NOT initialize the embedding model, Chroma,
+        # Gemini, or LangGraph here.
+        #
+        # This object is imported while FastAPI starts.
+        # ----------------------------------------------------
 
         self.embedder = None
         self.vector_store = None
 
+        self._initialization_lock = Lock()
+
+        self._initialized = False
+
     # ========================================================
-    # Initialize query components
+    # Lazy Initialization
     # ========================================================
 
     def _initialize(self):
+        """
+        Initialize query-time RAG components only when
+        the first query is received.
 
-        if self.embedder is None:
+        This prevents Render from blocking during startup.
+        """
+
+        if self._initialized:
+            return
+
+        with self._initialization_lock:
+
+            if self._initialized:
+                return
 
             print(
-                "Loading embedding model for queries..."
+                "Initializing query/RAG components..."
             )
+
+            # ------------------------------------------------
+            # Heavy imports happen only here.
+            # ------------------------------------------------
+
+            from app.embeddings.embedder import (
+                DocumentEmbedder,
+            )
+
+            from app.vectorstore.chroma_store import (
+                ChromaVectorStore,
+            )
+
+            # ------------------------------------------------
+            # Initialize components.
+            # ------------------------------------------------
 
             self.embedder = DocumentEmbedder()
-
-            print(
-                "✓ Query embedding model loaded"
-            )
-
-        if self.vector_store is None:
 
             self.vector_store = (
                 ChromaVectorStore()
             )
 
+            self._initialized = True
+
             print(
-                "✓ ChromaDB connected"
+                "Query/RAG components initialized."
             )
 
     # ========================================================
-    # Load manifest
-    # ========================================================
-
-    def _load_manifest(
-        self,
-        document_id: str,
-    ):
-
-        document_directory = (
-            DOCUMENT_STORAGE / document_id
-        )
-
-        manifest_path = (
-            document_directory / "manifest.json"
-        )
-
-        if not document_directory.exists():
-
-            raise FileNotFoundError(
-                f"Document '{document_id}' was not found."
-            )
-
-        if not manifest_path.exists():
-
-            raise FileNotFoundError(
-                "Document manifest is missing."
-            )
-
-        try:
-
-            with open(
-                manifest_path,
-                "r",
-                encoding="utf-8",
-            ) as file:
-
-                manifest = json.load(file)
-
-        except json.JSONDecodeError as exc:
-
-            raise ValueError(
-                "Document manifest is corrupted."
-            ) from exc
-
-        return manifest
-
-    # ========================================================
-    # Restore DocumentSection
-    # ========================================================
-
-    def _restore_section(
-        self,
-        data,
-        parent=None,
-    ):
-        """
-        Reconstruct a DocumentSection object from
-        the JSON representation stored during upload.
-        """
-
-        items = []
-
-        for item in data.get(
-            "items",
-            []
-        ):
-
-            items.append(
-                DocumentElement(
-                    text=item.get(
-                        "text",
-                        ""
-                    ),
-                    label=item.get(
-                        "label",
-                        "unknown"
-                    ),
-                    page=item.get(
-                        "page"
-                    ),
-                )
-            )
-
-        section = DocumentSection(
-            title=data.get(
-                "title",
-                ""
-            ),
-            items=items,
-            page=data.get(
-                "page"
-            ),
-            level=data.get(
-                "level",
-                1
-            ),
-            parent=parent,
-        )
-
-        # Restore child hierarchy
-
-        for child_data in data.get(
-            "children",
-            []
-        ):
-
-            child = self._restore_section(
-                child_data,
-                parent=section,
-            )
-
-            section.children.append(
-                child
-            )
-
-        return section
-
-    # ========================================================
-    # Restore all sections
-    # ========================================================
-
-    def _restore_sections(
-        self,
-        manifest,
-    ):
-
-        sections = []
-
-        for section_data in manifest.get(
-            "sections",
-            []
-        ):
-
-            section = self._restore_section(
-                section_data
-            )
-
-            sections.append(
-                section
-            )
-
-        return sections
-
-    # ========================================================
-    # Create lightweight parsed document
-    # ========================================================
-
-    def _restore_parsed_document(
-        self,
-        manifest,
-    ):
-        """
-        Recreate only the fields required by the
-        existing agent tools.
-
-        We deliberately do NOT recreate the full
-        Docling document.
-        """
-
-        source = manifest.get(
-            "source"
-        )
-
-        pages = manifest.get(
-            "pages",
-            0
-        )
-
-        return SimpleNamespace(
-            source=Path(source)
-            if source
-            else Path(
-                manifest.get(
-                    "filename",
-                    "unknown"
-                )
-            ),
-            pages=pages,
-        )
-
-    # ========================================================
-    # Execute query
+    # Query
     # ========================================================
 
     def query(
@@ -253,10 +279,20 @@ class QueryService:
         document_id: str,
         query: str,
     ):
+        """
+        Execute an Agentic RAG query against a
+        previously uploaded document.
+        """
 
         # ----------------------------------------------------
-        # Validate query
+        # Validate inputs
         # ----------------------------------------------------
+
+        if not document_id or not document_id.strip():
+
+            raise ValueError(
+                "Document ID cannot be empty."
+            )
 
         if not query or not query.strip():
 
@@ -264,38 +300,51 @@ class QueryService:
                 "Query cannot be empty."
             )
 
+        document_id = document_id.strip()
         query = query.strip()
 
         # ----------------------------------------------------
-        # Validate document and load manifest
+        # Make sure document exists BEFORE initializing
+        # expensive query components.
         # ----------------------------------------------------
 
-        manifest = self._load_manifest(
+        manifest = _load_manifest(
             document_id
         )
 
         # ----------------------------------------------------
-        # Restore persisted document state
+        # Reconstruct document structure.
         # ----------------------------------------------------
 
-        sections = self._restore_sections(
-            manifest
-        )
-
         parsed_document = (
-            self._restore_parsed_document(
+            _build_parsed_document(
                 manifest
             )
         )
 
+        sections = _build_sections(
+            manifest
+        )
+
+        if not sections:
+
+            raise ValueError(
+                "No document sections are available "
+                "for this document."
+            )
+
         # ----------------------------------------------------
-        # Initialize vector search components
+        # Initialize query components.
         # ----------------------------------------------------
 
         self._initialize()
 
         # ----------------------------------------------------
-        # Create the existing Agentic RAG graph
+        # Create Agentic RAG graph.
+        #
+        # The graph receives the current document's
+        # parsed structure, sections, vector store,
+        # embedder, and document ID.
         # ----------------------------------------------------
 
         graph = create_agent_graph(
@@ -307,7 +356,7 @@ class QueryService:
         )
 
         # ----------------------------------------------------
-        # Initial LangGraph state
+        # Initial AgentState
         # ----------------------------------------------------
 
         initial_state = {
@@ -316,14 +365,12 @@ class QueryService:
                     content=query
                 )
             ],
-
             "query": query,
-
             "retrieved_chunks": [],
         }
 
         # ----------------------------------------------------
-        # Execute agent
+        # Execute Agentic RAG
         # ----------------------------------------------------
 
         result = graph.invoke(
@@ -331,47 +378,15 @@ class QueryService:
         )
 
         # ----------------------------------------------------
-        # Extract messages
+        # Extract final answer.
         # ----------------------------------------------------
 
-        messages = result.get(
-            "messages",
-            []
+        answer = _extract_answer(
+            result
         )
-
-        if not messages:
-
-            raise RuntimeError(
-                "Agent returned no messages."
-            )
-
-        # ----------------------------------------------------
-        # Find final assistant response
-        # ----------------------------------------------------
-
-        final_message = messages[-1]
-
-        answer = getattr(
-            final_message,
-            "content",
-            None
-        )
-
-        if not answer:
-
-            raise RuntimeError(
-                "Agent returned an empty response."
-            )
-
-        # ----------------------------------------------------
-        # Return API-ready result
-        # ----------------------------------------------------
 
         return {
             "document_id": document_id,
-            "filename": manifest.get(
-                "filename"
-            ),
             "answer": answer,
         }
 
