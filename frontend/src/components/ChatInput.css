@@ -1,7 +1,22 @@
+/* =========================================================
+   CHAT INPUT BAR
+   ========================================================= */
+
 .chat-input-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+
+  z-index: 1000;
+
+  width: 100%;
+
   flex-shrink: 0;
+
   border-top: 1px solid var(--color-border);
-    background: linear-gradient(
+
+  background: linear-gradient(
     90deg,
     #cbe3f9 0%,
     #c0dbf6 50%,
@@ -9,79 +24,483 @@
   );
 
   border-bottom: 1px solid #c8e3ff;
+
   padding: 16px 24px;
-  padding-bottom: max(16px, env(safe-area-inset-bottom));
+
+  /*
+   * Prevent the input from touching the
+   * home indicator on iPhones and other
+   * devices with a safe area.
+   */
+  padding-bottom: max(
+    16px,
+    env(safe-area-inset-bottom)
+  );
+
+  box-sizing: border-box;
 }
 
+
+/* =========================================================
+   CHAT INPUT INNER
+   ========================================================= */
+
 .chat-input-inner {
+  width: 100%;
   max-width: var(--max-width);
+
   margin: 0 auto;
+
+  box-sizing: border-box;
 }
+
+
+/* =========================================================
+   CHAT INPUT BOX
+   ========================================================= */
 
 .chat-input-box {
   display: flex;
   align-items: flex-end;
+
   gap: 8px;
+
+  width: 100%;
+  min-width: 0;
+
   border: 1px solid gray;
-  border-radius:25px;
+  border-radius: 25px;
+
   padding: 9px 9px 9px 14px;
+
   background: var(--color-bg);
-  transition: border-color var(--transition-fast);
+
+  box-sizing: border-box;
+
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
+
+
+/* Focus state */
 
 .chat-input-box:focus-within {
   border-color: var(--color-black);
 }
 
+
+/* =========================================================
+   TEXTAREA
+   ========================================================= */
+
 .chat-input-textarea {
   flex: 1;
-  border:none;
+
+  min-width: 0;
+
+  border: none;
   outline: none;
+
   resize: none;
+
   background: transparent;
+
   font-size: 14.5px;
   line-height: 1.5;
+
   max-height: 160px;
+
   padding: 4px 0;
+
   color: var(--color-text);
+
+  box-sizing: border-box;
 }
+
+
+/* Placeholder */
 
 .chat-input-textarea::placeholder {
   color: var(--color-text-tertiary);
 }
 
+
+/* Disabled */
+
 .chat-input-textarea:disabled {
   color: var(--color-text-tertiary);
 }
 
-.chat-input-send {
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--color-black);
-  color: var(--color-white);
-  border: none;
+
+/* =========================================================
+   PLUS / ATTACH BUTTON
+   ========================================================= */
+
+.chat-input-plus {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: opacity var(--transition-fast), transform var(--transition-fast);
+
+  flex-shrink: 0;
+
+  width: 32px;
+  height: 32px;
+
+  border-radius: 50%;
+
+  border: 1px solid transparent;
+
+  background: transparent;
+
+  color: #000000;
+
+  cursor: pointer;
+
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
 }
+
+
+/* Hover */
+
+.chat-input-plus:hover {
+  background: #3a3a3a;
+
+  border-color: #555555;
+
+  color: #ffffff;
+}
+
+
+/* Click */
+
+.chat-input-plus:active {
+  background: #2a2a2a;
+
+  transform: scale(0.95);
+}
+
+
+/* Disabled */
+
+.chat-input-plus:disabled {
+  opacity: 0.45;
+
+  cursor: not-allowed;
+}
+
+
+/* =========================================================
+   SEND BUTTON
+   ========================================================= */
+
+.chat-input-send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  flex-shrink: 0;
+
+  width: 32px;
+  height: 32px;
+
+  border-radius: 50%;
+
+  background: var(--color-black);
+
+  color: var(--color-white);
+
+  border: none;
+
+  cursor: pointer;
+
+  transition:
+    opacity var(--transition-fast),
+    transform var(--transition-fast);
+}
+
+
+/* Disabled */
 
 .chat-input-send:disabled {
   background: var(--color-border-strong);
+
   color: var(--color-text-tertiary);
+
+  cursor: not-allowed;
 }
+
+
+/* Hover */
 
 .chat-input-send:hover:not(:disabled) {
   opacity: 0.85;
 }
 
+
+/* Active */
+
 .chat-input-send:active:not(:disabled) {
   transform: scale(0.94);
 }
 
+
+/* =========================================================
+   CHAT MESSAGE AREA
+   ========================================================= */
+
+/*
+ * Because .chat-input-bar is fixed to the viewport,
+ * it no longer occupies normal document space.
+ *
+ * Add bottom space so the last message isn't hidden
+ * underneath the input bar.
+ */
+
+.chat-messages {
+  padding-bottom: 120px;
+
+  box-sizing: border-box;
+}
+
+
+/* =========================================================
+   CHAT PAGE
+   ========================================================= */
+
+.chat-page {
+  position: relative;
+
+  min-height: 100dvh;
+
+  box-sizing: border-box;
+}
+
+
+/* =========================================================
+   UPLOAD EMPTY STATE
+   ========================================================= */
+
+.upload-empty-state {
+  flex: 1;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 100%;
+
+  box-sizing: border-box;
+}
+
+
+.upload-empty-card {
+  display: flex;
+  flex-direction: column;
+
+  align-items: center;
+
+  justify-content: center;
+
+  gap: 8px;
+
+  padding: 32px 40px;
+
+  border: 1px dashed currentColor;
+
+  border-radius: 12px;
+
+  cursor: pointer;
+
+  box-sizing: border-box;
+}
+
+
+/* =========================================================
+   TABLET
+   ========================================================= */
+
+@media (max-width: 768px) {
+
+  .chat-input-bar {
+    padding-left: 16px;
+    padding-right: 16px;
+
+    padding-top: 12px;
+
+    padding-bottom: max(
+      12px,
+      env(safe-area-inset-bottom)
+    );
+  }
+
+  .chat-messages {
+    padding-bottom: 105px;
+  }
+
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
 @media (max-width: 640px) {
+
+  .chat-input-bar {
+    padding-left: 12px;
+    padding-right: 12px;
+
+    padding-top: 10px;
+
+    padding-bottom: max(
+      10px,
+      env(safe-area-inset-bottom)
+    );
+  }
+
+
+  .chat-input-box {
+    gap: 6px;
+
+    padding: 8px 8px 8px 12px;
+
+    border-radius: 22px;
+  }
+
+
+  .chat-input-textarea {
+    font-size: 14px;
+
+    line-height: 1.45;
+
+    max-height: 140px;
+  }
+
+
+  .chat-input-plus,
+  .chat-input-send {
+    width: 31px;
+    height: 31px;
+  }
+
+
+  .chat-messages {
+    padding-bottom: 92px;
+  }
+
+}
+
+
+/* =========================================================
+   SMALL MOBILE DEVICES
+   ========================================================= */
+
+@media (max-width: 480px) {
+
+  .chat-input-bar {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+
+  .chat-input-box {
+    gap: 5px;
+
+    padding-left: 10px;
+    padding-right: 7px;
+  }
+
+
+  .chat-input-textarea {
+    font-size: 13.5px;
+  }
+
+
+  .chat-input-plus,
+  .chat-input-send {
+    width: 30px;
+    height: 30px;
+  }
+
+
+  .chat-messages {
+    padding-bottom: 88px;
+  }
+
+}
+
+
+/* =========================================================
+   VERY SMALL DEVICES
+   ========================================================= */
+
+@media (max-width: 380px) {
+
+  .chat-input-bar {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+
+  .chat-input-box {
+    gap: 4px;
+
+    padding-left: 9px;
+    padding-right: 6px;
+  }
+
+
+  .chat-input-textarea {
+    font-size: 13px;
+  }
+
+
+  .chat-input-plus,
+  .chat-input-send {
+    width: 29px;
+    height: 29px;
+  }
+
+}
+
+
+/* =========================================================
+   LANDSCAPE MOBILE
+   ========================================================= */
+
+@media (max-height: 500px) and (orientation: landscape) {
+
+  .chat-input-bar {
+    padding-top: 7px;
+
+    padding-bottom: max(
+      7px,
+      env(safe-area-inset-bottom)
+    );
+  }
+
+
+  .chat-input-box {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+
+  .chat-input-textarea {
+    max-height: 100px;
+  }
+
+
+  .chat-messages {
+    padding-bottom: 75px;
+  }
+
+  }@media (max-width: 640px) {
   .chat-input-bar {
     padding: 12px 16px;
     padding-bottom: max(12px, env(safe-area-inset-bottom));
