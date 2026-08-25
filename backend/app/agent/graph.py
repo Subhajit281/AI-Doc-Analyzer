@@ -10,6 +10,7 @@ from app.agent.tools.extract import InformationExtractionTool
 from app.agent.tools.compare import CompareSectionsTool
 from app.agent.tools.summarize import SummarizeSectionTool
 from app.agent.tools.verify import EvidenceVerificationTool
+from app.agent.tools.reasoning import ReasoningTool
 from app.llm.gemini import GeminiProvider
 
 
@@ -70,6 +71,8 @@ def create_agent_graph(
         llm=llm
     ).tool
 
+    reasoning_tool = ReasoningTool().tool
+
     tools = [
         search_tool,
         metadata_tool,
@@ -79,6 +82,7 @@ def create_agent_graph(
         compare_tool,
         summarize_tool,
         verify_tool,
+        reasoning_tool,
     ]
 
     # ---------------------------------------------

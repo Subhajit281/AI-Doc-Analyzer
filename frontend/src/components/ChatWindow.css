@@ -1,39 +1,174 @@
+/* =========================================================
+   CHAT WINDOW
+   ========================================================= */
+
 .chat-window {
-  flex: 1;
+  flex: 1 1 auto;
+
+  min-height: 0;
+  min-width: 0;
+
+  width: 100%;
+
   overflow-y: auto;
+  overflow-x: hidden;
+
   background: linear-gradient(
     135deg,
     #edf5ff 0%,
     #e3efff 50%,
     #d6e8ff 100%
   );
+
+  /*
+   * Important because the input is fixed to the viewport.
+   */
+  scroll-padding-bottom: 220px;
+
+  box-sizing: border-box;
+
+  -webkit-overflow-scrolling: touch;
 }
+
+
+/* =========================================================
+   CHAT WINDOW INNER
+   ========================================================= */
 
 .chat-window-inner {
+  width: 100%;
   max-width: var(--max-width);
+
   margin: 0 auto;
+
   padding: 24px;
+
   display: flex;
   flex-direction: column;
+
   gap: 14px;
+
+  /*
+   * The fixed input doesn't take up layout space.
+   * This creates enough scrollable space after the
+   * last message.
+   */
+  padding-bottom: 230px;
+
+  box-sizing: border-box;
 }
+
+
+/* =========================================================
+   EMPTY STATE
+   ========================================================= */
 
 .chat-empty {
-  height: 100%;
   min-height: 200px;
+
   display: flex;
   flex-direction: column;
+
   align-items: center;
   justify-content: center;
+
   gap: 10px;
+
   color: var(--color-text-tertiary);
+
   font-size: 13.5px;
+
   text-align: center;
+
   padding: 40px 24px;
+
+  box-sizing: border-box;
 }
 
-@media (max-width: 640px) {
+
+/* =========================================================
+   TABLET
+   ========================================================= */
+
+@media (max-width: 768px) {
+
+  .chat-window {
+    scroll-padding-bottom: 210px;
+  }
+
   .chat-window-inner {
     padding: 16px;
+
+    padding-bottom: 210px;
+  }
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 640px) {
+
+  .chat-window {
+    scroll-padding-bottom: 190px;
+  }
+
+  .chat-window-inner {
+    padding: 16px;
+
+    padding-bottom: 190px;
+  }
+}
+
+
+/* =========================================================
+   SMALL MOBILE
+   ========================================================= */
+
+@media (max-width: 480px) {
+
+  .chat-window {
+    scroll-padding-bottom: 185px;
+  }
+
+  .chat-window-inner {
+    padding: 12px;
+
+    padding-bottom: 185px;
+  }
+}
+
+
+/* =========================================================
+   VERY SMALL MOBILE
+   ========================================================= */
+
+@media (max-width: 380px) {
+
+  .chat-window {
+    scroll-padding-bottom: 180px;
+  }
+
+  .chat-window-inner {
+    padding: 10px;
+
+    padding-bottom: 180px;
+  }
+}
+
+
+/* =========================================================
+   LANDSCAPE MOBILE
+   ========================================================= */
+
+@media (max-height: 500px) and (orientation: landscape) {
+
+  .chat-window {
+    scroll-padding-bottom: 135px;
+  }
+
+  .chat-window-inner {
+    padding-bottom: 135px;
   }
 }

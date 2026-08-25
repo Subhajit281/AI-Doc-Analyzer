@@ -4,6 +4,7 @@
 
 .chat-input-bar {
   position: fixed;
+
   left: 0;
   right: 0;
   bottom: 0;
@@ -12,9 +13,9 @@
 
   width: 100%;
 
-  flex-shrink: 0;
-
   border-top: 1px solid var(--color-border);
+
+  border-bottom: 1px solid #c8e3ff;
 
   background: linear-gradient(
     90deg,
@@ -23,15 +24,8 @@
     #e8f3ff 100%
   );
 
-  border-bottom: 1px solid #c8e3ff;
-
   padding: 16px 24px;
 
-  /*
-   * Prevent the input from touching the
-   * home indicator on iPhones and other
-   * devices with a safe area.
-   */
   padding-bottom: max(
     16px,
     env(safe-area-inset-bottom)
@@ -42,11 +36,12 @@
 
 
 /* =========================================================
-   CHAT INPUT INNER
+   INPUT INNER
    ========================================================= */
 
 .chat-input-inner {
   width: 100%;
+
   max-width: var(--max-width);
 
   margin: 0 auto;
@@ -56,19 +51,22 @@
 
 
 /* =========================================================
-   CHAT INPUT BOX
+   INPUT BOX
    ========================================================= */
 
 .chat-input-box {
   display: flex;
+
   align-items: flex-end;
 
   gap: 8px;
 
   width: 100%;
+
   min-width: 0;
 
   border: 1px solid gray;
+
   border-radius: 25px;
 
   padding: 9px 9px 9px 14px;
@@ -82,8 +80,6 @@
     box-shadow var(--transition-fast);
 }
 
-
-/* Focus state */
 
 .chat-input-box:focus-within {
   border-color: var(--color-black);
@@ -100,6 +96,7 @@
   min-width: 0;
 
   border: none;
+
   outline: none;
 
   resize: none;
@@ -107,6 +104,7 @@
   background: transparent;
 
   font-size: 14.5px;
+
   line-height: 1.5;
 
   max-height: 160px;
@@ -116,17 +114,15 @@
   color: var(--color-text);
 
   box-sizing: border-box;
+
+  overflow-y: auto;
 }
 
-
-/* Placeholder */
 
 .chat-input-textarea::placeholder {
   color: var(--color-text-tertiary);
 }
 
-
-/* Disabled */
 
 .chat-input-textarea:disabled {
   color: var(--color-text-tertiary);
@@ -134,11 +130,12 @@
 
 
 /* =========================================================
-   PLUS / ATTACH BUTTON
+   PLUS BUTTON
    ========================================================= */
 
 .chat-input-plus {
   display: flex;
+
   align-items: center;
   justify-content: center;
 
@@ -147,9 +144,11 @@
   width: 32px;
   height: 32px;
 
-  border-radius: 50%;
+  padding: 0;
 
   border: 1px solid transparent;
+
+  border-radius: 50%;
 
   background: transparent;
 
@@ -165,8 +164,6 @@
 }
 
 
-/* Hover */
-
 .chat-input-plus:hover {
   background: #3a3a3a;
 
@@ -176,16 +173,12 @@
 }
 
 
-/* Click */
-
 .chat-input-plus:active {
   background: #2a2a2a;
 
   transform: scale(0.95);
 }
 
-
-/* Disabled */
 
 .chat-input-plus:disabled {
   opacity: 0.45;
@@ -200,6 +193,7 @@
 
 .chat-input-send {
   display: flex;
+
   align-items: center;
   justify-content: center;
 
@@ -208,13 +202,15 @@
   width: 32px;
   height: 32px;
 
+  padding: 0;
+
+  border: none;
+
   border-radius: 50%;
 
   background: var(--color-black);
 
   color: var(--color-white);
-
-  border: none;
 
   cursor: pointer;
 
@@ -223,8 +219,6 @@
     transform var(--transition-fast);
 }
 
-
-/* Disabled */
 
 .chat-input-send:disabled {
   background: var(--color-border-strong);
@@ -235,88 +229,13 @@
 }
 
 
-/* Hover */
-
 .chat-input-send:hover:not(:disabled) {
   opacity: 0.85;
 }
 
 
-/* Active */
-
 .chat-input-send:active:not(:disabled) {
   transform: scale(0.94);
-}
-
-
-/* =========================================================
-   CHAT MESSAGE AREA
-   ========================================================= */
-
-/*
- * Because .chat-input-bar is fixed to the viewport,
- * it no longer occupies normal document space.
- *
- * Add bottom space so the last message isn't hidden
- * underneath the input bar.
- */
-
-.chat-messages {
-  padding-bottom: 120px;
-
-  box-sizing: border-box;
-}
-
-
-/* =========================================================
-   CHAT PAGE
-   ========================================================= */
-
-.chat-page {
-  position: relative;
-
-  min-height: 100dvh;
-
-  box-sizing: border-box;
-}
-
-
-/* =========================================================
-   UPLOAD EMPTY STATE
-   ========================================================= */
-
-.upload-empty-state {
-  flex: 1;
-
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  width: 100%;
-
-  box-sizing: border-box;
-}
-
-
-.upload-empty-card {
-  display: flex;
-  flex-direction: column;
-
-  align-items: center;
-
-  justify-content: center;
-
-  gap: 8px;
-
-  padding: 32px 40px;
-
-  border: 1px dashed currentColor;
-
-  border-radius: 12px;
-
-  cursor: pointer;
-
-  box-sizing: border-box;
 }
 
 
@@ -327,21 +246,13 @@
 @media (max-width: 768px) {
 
   .chat-input-bar {
-    padding-left: 16px;
-    padding-right: 16px;
-
-    padding-top: 12px;
+    padding: 12px 16px;
 
     padding-bottom: max(
       12px,
       env(safe-area-inset-bottom)
     );
   }
-
-  .chat-messages {
-    padding-bottom: 105px;
-  }
-
 }
 
 
@@ -352,17 +263,13 @@
 @media (max-width: 640px) {
 
   .chat-input-bar {
-    padding-left: 12px;
-    padding-right: 12px;
-
-    padding-top: 10px;
+    padding: 10px 12px;
 
     padding-bottom: max(
       10px,
       env(safe-area-inset-bottom)
     );
   }
-
 
   .chat-input-box {
     gap: 6px;
@@ -372,7 +279,6 @@
     border-radius: 22px;
   }
 
-
   .chat-input-textarea {
     font-size: 14px;
 
@@ -381,91 +287,75 @@
     max-height: 140px;
   }
 
-
   .chat-input-plus,
   .chat-input-send {
     width: 31px;
     height: 31px;
   }
-
-
-  .chat-messages {
-    padding-bottom: 92px;
-  }
-
 }
 
 
 /* =========================================================
-   SMALL MOBILE DEVICES
+   SMALL MOBILE
    ========================================================= */
 
 @media (max-width: 480px) {
 
   .chat-input-bar {
     padding-left: 8px;
+
     padding-right: 8px;
   }
-
 
   .chat-input-box {
     gap: 5px;
 
     padding-left: 10px;
+
     padding-right: 7px;
   }
-
 
   .chat-input-textarea {
     font-size: 13.5px;
   }
-
 
   .chat-input-plus,
   .chat-input-send {
     width: 30px;
     height: 30px;
   }
-
-
-  .chat-messages {
-    padding-bottom: 88px;
-  }
-
 }
 
 
 /* =========================================================
-   VERY SMALL DEVICES
+   VERY SMALL MOBILE
    ========================================================= */
 
 @media (max-width: 380px) {
 
   .chat-input-bar {
     padding-left: 6px;
+
     padding-right: 6px;
   }
-
 
   .chat-input-box {
     gap: 4px;
 
     padding-left: 9px;
+
     padding-right: 6px;
   }
-
 
   .chat-input-textarea {
     font-size: 13px;
   }
-
 
   .chat-input-plus,
   .chat-input-send {
     width: 29px;
     height: 29px;
   }
-
 }
 
 
@@ -484,84 +374,13 @@
     );
   }
 
-
   .chat-input-box {
     padding-top: 6px;
+
     padding-bottom: 6px;
   }
-
 
   .chat-input-textarea {
     max-height: 100px;
   }
-
-
-  .chat-messages {
-    padding-bottom: 75px;
-  }
-
-  }@media (max-width: 640px) {
-  .chat-input-bar {
-    padding: 12px 16px;
-    padding-bottom: max(12px, env(safe-area-inset-bottom));
-  }
-}
-
-/* chat-input.css additions */
-.chat-input-plus {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  width: 32px;
-  height: 32px;
-
-  border-radius:50%;
-  border:#000000;
-
-
-  color: #000000;
-
-  cursor: pointer;
-  flex-shrink: 0;
-
-  transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease,
-    transform 0.15s ease;
-}
-
-.chat-input-plus:hover {
-  background: #3a3a3a;
-  border-color: #555555;
-  color: #ffffff;
-}
-
-.chat-input-plus:active {
-  background: #2a2a2a;
-  transform: scale(0.95);
-}
-
-.chat-input-plus:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-/* upload-empty-state.css */
-.upload-empty-state {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.upload-empty-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 32px 40px;
-  border: 1px dashed currentColor;
-  border-radius: 12px;
-  cursor: pointer;
 }
