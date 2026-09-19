@@ -21,14 +21,20 @@ class DocumentValidator:
         """
         Validate a document using the configured validation rules.
         """
-
+  
         # File must exist
         if not file_path.exists():
             raise FileNotFoundError(f"{file_path} does not exist.")
 
         # File must not be empty
-        if file_path.stat().st_size == 0:
+        file_size = file_path.stat().st_size
+        if file_size == 0:
             raise EmptyDocumentError("Uploaded document is empty.")
+
+        # File size must not exceed 10 MB
+        MAX_FILE_SIZE = 10 * 1024 * 1024
+        if file_size > MAX_FILE_SIZE:
+            raise ValueError("File size exceeds the 10 MB limit.")
 
         # Detect document type
         detection = self.detector.detect(file_path)

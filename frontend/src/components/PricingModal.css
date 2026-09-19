@@ -1,0 +1,469 @@
+/* ============================================================
+   PRICING MODAL OVERLAY & CONTAINER
+   ============================================================ */
+
+.pricing-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: modal-fade-in 0.2s ease-out;
+}
+
+@keyframes modal-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.pricing-modal-container {
+  background: #ffffff;
+  width: 100%;
+  max-width: 880px;
+  max-height: 90vh;
+  overflow-y: auto;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  position: relative;
+  box-sizing: border-box;
+}
+
+.pricing-modal-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.pricing-modal-close:hover {
+  background: var(--color-border);
+  color: var(--color-text);
+}
+
+/* ============================================================
+   HEADER & CURRENCY TOGGLE
+   ============================================================ */
+
+.pricing-header {
+  padding: 36px 36px 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.pricing-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  margin-bottom: 12px;
+}
+
+.pricing-title {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+  margin-bottom: 8px;
+}
+
+.pricing-subtitle {
+  font-size: 13.5px;
+  color: var(--color-text-secondary);
+  max-width: 540px;
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.currency-selector {
+  display: inline-flex;
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border);
+  padding: 3px;
+  border-radius: var(--radius-sm);
+}
+
+.currency-tab {
+  padding: 5px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.currency-tab.active {
+  background: #18181b;
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================================
+   PRICING CARDS GRID
+   ============================================================ */
+
+.pricing-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  padding: 10px 36px 28px;
+}
+
+.pricing-card {
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 22px 20px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.pricing-card:hover {
+  border-color: #18181b;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+}
+
+.pricing-card.selected {
+  border-color: #18181b;
+  box-shadow: 0 0 0 1px #18181b;
+}
+
+.pricing-card.popular {
+  border-color: #18181b;
+  background: #fafafa;
+}
+
+.pricing-card-badge {
+  position: absolute;
+  top: -11px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #18181b;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 10px;
+  border-radius: 999px;
+}
+
+.plan-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 8px;
+}
+
+.plan-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.plan-price {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+}
+
+.plan-period {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.plan-desc {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+  margin-bottom: 16px;
+  min-height: 34px;
+}
+
+.plan-features-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 22px;
+  flex: 1;
+}
+
+.plan-feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text);
+  line-height: 1.4;
+}
+
+.feature-check {
+  color: #16a34a;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.plan-cta-btn {
+  width: 100%;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.plan-cta-btn.primary {
+  background: #18181b;
+  color: #ffffff;
+  border: 1px solid #18181b;
+}
+
+.plan-cta-btn.primary:hover {
+  opacity: 0.88;
+}
+
+.plan-cta-btn.secondary {
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+}
+
+.plan-cta-btn.secondary:hover {
+  background: var(--color-border);
+}
+
+/* ============================================================
+   FOOTER TRUST BADGES
+   ============================================================ */
+
+.pricing-footer {
+  padding: 16px 36px 28px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  justify-content: center;
+  gap: 28px;
+}
+
+.pricing-trust-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+/* ============================================================
+   QR CODE PAYMENT SCREEN
+   ============================================================ */
+
+.pricing-qr-view {
+  padding: 40px 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.pricing-qr-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: 6px;
+}
+
+.pricing-qr-subtitle {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  margin-bottom: 24px;
+}
+
+.qr-box-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.qr-code-frame {
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.qr-scan-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.pricing-qr-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.pricing-verify-btn {
+  height: 40px;
+  background: #18181b;
+  color: #ffffff;
+  border: 1px solid #18181b;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+}
+
+.pricing-verify-btn:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.pricing-card-btn {
+  height: 38px;
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.pricing-card-btn:hover {
+  background: var(--color-border);
+}
+
+.pricing-back-btn {
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 6px;
+}
+
+.pricing-back-btn:hover {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
+/* ============================================================
+   SUCCESS VIEW
+   ============================================================ */
+
+.pricing-success-view {
+  padding: 60px 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.pricing-success-icon {
+  color: #16a34a;
+  margin-bottom: 16px;
+}
+
+.pricing-success-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: 8px;
+}
+
+.pricing-success-desc {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
+.pricing-error-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--color-error-bg);
+  border: 1px solid #fecaca;
+  color: var(--color-error);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  margin-bottom: 16px;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 768px) {
+  .pricing-cards-grid {
+    grid-template-columns: 1fr;
+    padding: 10px 20px 24px;
+  }
+
+  .pricing-header {
+    padding: 28px 20px 16px;
+  }
+
+  .pricing-footer {
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+}
+

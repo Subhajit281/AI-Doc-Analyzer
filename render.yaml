@@ -1,0 +1,71 @@
+services:
+  # ============================================================
+  # Backend API Web Service (Free Tier <= 512 MB RAM)
+  # ============================================================
+  - type: web
+    name: document-ai-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements-free-tier.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: PARSER_BACKEND
+        value: lightweight
+      - key: EMBEDDING_PROVIDER
+        value: gemini
+      - key: MALLOC_ARENA_MAX
+        value: "2"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: GROQ_FREE_MODEL
+        value: openai/gpt-oss-120b
+      - key: GROQ_PRO_MODEL
+        value: qwen/qwen3.8-27b
+      - key: MONGODB_DB_NAME
+        value: document_ai
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_MERCHANT_UPI
+        sync: false
+      - key: SENDER_EMAIL
+        sync: false
+      - key: EMAILJS_SERVICE_ID
+        sync: false
+      - key: EMAILJS_TEMPLATE_ID
+        sync: false
+      - key: EMAILJS_PUBLIC_KEY
+        sync: false
+      - key: EMAILJS_PRIVATE_KEY
+        sync: false
+
+  # ============================================================
+  # Frontend Static Site
+  # ============================================================
+  - type: web
+    name: document-ai-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: document-ai-backend
+          property: host
+

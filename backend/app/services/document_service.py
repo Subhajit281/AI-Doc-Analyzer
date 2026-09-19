@@ -1,5 +1,7 @@
 import json
 import uuid
+import tempfile
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from threading import Lock
 
@@ -49,27 +51,20 @@ def _section_to_dict(section):
 
 
 # ============================================================
-# Manifest
+# Manifest Builder
 # ============================================================
 
-def _save_manifest(
+def _build_manifest(
     document_id,
     filename,
     parsed_document,
     sections,
 ):
     """
-    Persist lightweight document structure so that
-    future queries do not need to run Docling again.
+    Build lightweight document structure for database storage
+    and in-memory caching so that future queries do not need
+    to re-parse the document.
     """
-
-    document_directory = (
-        DOCUMENT_STORAGE / document_id
-    )
-
-    manifest_path = (
-        document_directory / "manifest.json"
-    )
 
     manifest = {
         "document_id": document_id,
@@ -83,18 +78,11 @@ def _save_manifest(
         ],
     }
 
-    with open(
-        manifest_path,
-        "w",
-        encoding="utf-8",
-    ) as file:
+    # In-memory cache for subsequent queries
+    from app.core.cache import manifest_cache
+    manifest_cache.set(document_id, manifest)
 
-        json.dump(
-            manifest,
-            file,
-            indent=2,
-            ensure_ascii=False,
-        )
+    return manifest
 
 
 # ============================================================
@@ -161,8 +149,8 @@ class DocumentService:
                 DocumentValidator,
             )
 
-            from app.parser.docling_parser import (
-                DoclingParser,
+            from app.parser.factory import (
+                get_document_parser,
             )
 
             from app.sections.extractor import (
@@ -187,7 +175,7 @@ class DocumentService:
 
             self.validator = DocumentValidator()
 
-            self.parser = DoclingParser()
+            self.parser = get_document_parser()
 
             self.extractor = SectionExtractor()
 
@@ -204,12 +192,29 @@ class DocumentService:
             )
 
     # ========================================================
-    # Process Document
+    # Process Document (Queue-Protected)
     # ========================================================
 
     async def process_document(
         self,
         file: UploadFile,
+        user_id: str,
+    ):
+        from app.core.queue import ingestion_queue
+
+        async def _execute_ingestion():
+            return await self._process_document_internal(file, user_id)
+
+        filename = file.filename or "unknown"
+        return await ingestion_queue.execute(
+            _execute_ingestion,
+            task_name=f"Ingest-{filename}",
+        )
+
+    async def _process_document_internal(
+        self,
+        file: UploadFile,
+        user_id: str,
     ):
 
         # ====================================================
@@ -228,24 +233,10 @@ class DocumentService:
         )
 
         # ====================================================
-        # 2. Create document directory
-        # ====================================================
-
-        document_directory = (
-            DOCUMENT_STORAGE / document_id
-        )
-
-        document_directory.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        # ====================================================
-        # 3. Save uploaded file
+        # 2. Read & Validate Uploaded File
         # ====================================================
 
         if not file.filename:
-
             raise ValueError(
                 "Uploaded file must have a filename."
             )
@@ -255,61 +246,68 @@ class DocumentService:
             file.filename
         ).name
 
-        file_path = (
-            document_directory / filename
-        )
-
         contents = await file.read()
 
         if not contents:
-
             raise ValueError(
                 "Uploaded document is empty."
             )
 
-        with open(
-            file_path,
-            "wb",
-        ) as buffer:
-
-            buffer.write(contents)
-
-        # ====================================================
-        # 4. Validate document
-        # ====================================================
-
-        validation = (
-            self.validator.validate(
-                file_path
+        if len(contents) > 10 * 1024 * 1024:
+            raise ValueError(
+                "File size exceeds the 10 MB upload limit."
             )
-        )
 
         # ====================================================
-        # 5. Parse with Docling
+        # 3. Process via Transient Scratch File
+        # No permanent files remain in project directory!
         # ====================================================
 
-        parsed_document = (
-            self.parser.parse(
-                file_path,
-                validation,
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+            temp_file_path = Path(temp_dir) / filename
+
+            with open(
+                temp_file_path,
+                "wb",
+            ) as buffer:
+                buffer.write(contents)
+
+            # Validate document
+            validation = (
+                self.validator.validate(
+                    temp_file_path
+                )
             )
-        )
 
-        # ====================================================
-        # 6. Extract document sections
-        # ====================================================
-
-        sections = (
-            self.extractor.extract(
-                parsed_document.raw_document
+            # Parse with Docling / PyPDF
+            parsed_document = (
+                self.parser.parse(
+                    temp_file_path,
+                    validation,
+                )
             )
-        )
+
+            # Extract document sections
+            sections = (
+                self.extractor.extract(
+                    parsed_document.raw_document
+                )
+            )
+
+            # Proactively unlink temp file and collect garbage to release OS file locks
+            try:
+                import gc
+                gc.collect()
+                if temp_file_path.exists():
+                    temp_file_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
         # ====================================================
-        # 7. Persist document structure
+        # 4. Build Document Manifest
         # ====================================================
 
-        _save_manifest(
+        manifest = _build_manifest(
             document_id=document_id,
             filename=filename,
             parsed_document=parsed_document,
@@ -425,34 +423,99 @@ class DocumentService:
         )
 
         # ====================================================
-        # 12. Return document information
+        # 12. Save Document Record to Database
+        # Stored in user's account with 7-day TTL expiration!
+        # ====================================================
+
+        from app.core.database import db_manager
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(days=7)
+
+        doc_record = {
+            "document_id": document_id,
+            "user_id": user_id,
+            "filename": filename,
+            "content_type": file.content_type or "application/octet-stream",
+            "file_size": len(contents),
+            "file_bytes": contents,
+            "manifest": manifest,
+            "page_count": parsed_document.pages,
+            "section_count": len(sections),
+            "chunk_count": len(chunks),
+            "created_at": now.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "expires_at_dt": expires_at,
+        }
+        await db_manager.save_document(doc_record)
+
+        # ====================================================
+        # 13. Memory cleanup
+        # ====================================================
+
+        from app.core.memory import optimize_memory
+        optimize_memory(tag=f"UploadCompleted-{document_id[:8]}")
+
+        # ====================================================
+        # 14. Return document information
         # ====================================================
 
         return {
+            "document_id": document_id,
+            "filename": filename,
+            "status": "ready",
+            "page_count": parsed_document.pages,
+            "section_count": len(sections),
+            "chunk_count": len(chunks),
+            "created_at": now.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "days_remaining": 7,
+            "expiry_label": "Expires in 7d",
+        }
 
-            "document_id": (
-                document_id
-            ),
+    # ========================================================
+    # Delete Document
+    # ========================================================
 
-            "filename": (
-                filename
-            ),
+    async def delete_document(
+        self,
+        document_id: str,
+        user_id: str,
+    ) -> dict:
+        import shutil
+        from app.core.cache import manifest_cache
+        from app.core.memory import optimize_memory
+        from app.core.database import db_manager
 
-            "status": (
-                "ready"
-            ),
+        # 1. Delete from database (verifying ownership)
+        deleted_from_db = await db_manager.delete_document(document_id, user_id)
+        if not deleted_from_db:
+            existing = await db_manager.get_document(document_id)
+            if existing and existing.get("user_id") != user_id:
+                raise PermissionError("You do not have permission to delete this document.")
 
-            "page_count": (
-                parsed_document.pages
-            ),
+        # 2. In-memory cache invalidation
+        manifest_cache.delete(document_id)
 
-            "section_count": (
-                len(sections)
-            ),
+        # 3. Purge vector embeddings from ChromaDB
+        self._initialize()
+        if self.vector_store is not None:
+            try:
+                self.vector_store.collection.delete(
+                    where={"document_id": document_id}
+                )
+            except Exception:
+                pass
 
-            "chunk_count": (
-                len(chunks)
-            ),
+        # 4. Clean up any legacy disk folder if one existed
+        legacy_dir = DOCUMENT_STORAGE / document_id
+        if legacy_dir.exists():
+            shutil.rmtree(legacy_dir, ignore_errors=True)
+
+        optimize_memory(tag=f"DeleteDoc-{document_id[:8]}")
+
+        return {
+            "document_id": document_id,
+            "status": "deleted",
         }
 
 
@@ -461,23 +524,30 @@ class DocumentService:
 # ============================================================
 
 # This is now SAFE.
-#
 # It only creates the lightweight DocumentService object.
 # Heavy ML components are NOT loaded here.
-#
 document_service = DocumentService()
 
 
 # ============================================================
-# Public Function
+# Public Functions
 # ============================================================
 
 async def process_document(
     file: UploadFile,
+    user_id: str,
 ):
+    return await document_service.process_document(
+        file,
+        user_id,
+    )
 
-    return await (
-        document_service.process_document(
-            file
-        )
+
+async def delete_document(
+    document_id: str,
+    user_id: str,
+):
+    return await document_service.delete_document(
+        document_id,
+        user_id,
     )
