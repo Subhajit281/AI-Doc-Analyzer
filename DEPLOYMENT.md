@@ -77,9 +77,9 @@ git push origin main
 4. Under **Advanced** → **Add Environment Variable**, add the required environment variables listed in the table above.
 5. Click **Deploy Web Service**.
 6. Once deployed, copy your backend URL (e.g., `https://document-ai-backend-xxxx.onrender.com`).
-   - Test it by opening `https://document-ai-backend-xxxx.onrender.com/docs` in your browser.
+   - Test it by opening `https://ai-doc-analyzer-ccuv.onrender.com/docs` in your browser.
 
-### Step 3: Deploy Frontend to Vercel
+### Step 3: Deploy Frontend to Vercel (or Render Static Site)
 1. Go to [Vercel Dashboard](https://vercel.com/) and click **Add New...** → **Project**.
 2. Import your GitHub repository (`Subhajit281/AI-Doc-Analyzer`).
 3. In the project configuration:
@@ -89,7 +89,8 @@ git push origin main
    - **Output Directory**: `dist`
 4. Expand **Environment Variables** and add:
    - **Key**: `VITE_API_URL`
-   - **Value**: `https://document-ai-backend-xxxx.onrender.com` *(your Render backend URL with NO trailing slash)*
+   - **Value**: `https://ai-doc-analyzer-ccuv.onrender.com`
+   *(Note: This is also pre-configured as the default in `frontend/.env.production` and `src/services/api.js`)*
 5. Click **Deploy**.
 6. Vercel will build the frontend in ~30 seconds and provide your live URL (e.g., `https://ai-doc-analyzer.vercel.app`).
 
