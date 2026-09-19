@@ -169,17 +169,23 @@
 
 .pricing-card-badge {
   position: absolute;
-  top: -11px;
+  top: -18px;
   left: 50%;
   transform: translateX(-50%);
+
   background: #18181b;
   color: #ffffff;
-  font-size: 10px;
+
+  font-size: 7px;
   font-weight: 600;
-  text-transform: uppercase;
+  text-transform: capitalize;
   letter-spacing: 0.04em;
-  padding: 2px 10px;
+
+  padding: 5px 12px;
   border-radius: 999px;
+
+  white-space: nowrap;
+  text-align: center;
 }
 
 .plan-name {

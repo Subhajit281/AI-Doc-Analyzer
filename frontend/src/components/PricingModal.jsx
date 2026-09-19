@@ -46,7 +46,7 @@ const PLANS_DATA = [
     desc: 'Ideal for professionals, researchers, and students.',
     features: [
       '500 Queries / Month (up to 100/day)',
-      '⚡ Better Model Analyzer',
+      'Better Models and Responses',
       'Deep table extraction & multi-page synthesis',
       'Priority response queue & low latency',
       'Full purchase history and invoice receipts',
@@ -62,7 +62,7 @@ const PLANS_DATA = [
     desc: 'Continuous document intelligence with maximum capacity & savings.',
     features: [
       '2,500 Queries / Year (up to 200/day)',
-      '⚡ Better Model Analyzer',
+      'Better Models and Responses',
       'All Monthly Pro capabilities included',
       'Highest processing priority & context depth',
       'Priority email customer support',
