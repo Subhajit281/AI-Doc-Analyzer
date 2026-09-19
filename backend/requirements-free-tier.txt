@@ -1,5 +1,5 @@
 # ============================================================
-# Document AI Analyzer - Free Tier (<= 512 MB RAM) Requirements
+# Document AI Analyzer - Production Requirements (<= 512 MB RAM)
 # ============================================================
 
 # Web & API
@@ -38,10 +38,9 @@ pymongo>=4.9.0
 dnspython>=2.6.0
 
 # Authentication & Security
-pyjwt>=2.9.0
+PyJWT>=2.9.0
 bcrypt>=4.2.0
 
 # External APIs (EmailJS OTP & Payments)
 requests>=2.31.0
 razorpay>=1.4.0
-
