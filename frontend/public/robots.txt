@@ -6,3 +6,4 @@ Host: https://ai-doc-analyzer-ccuv.onrender.com
 
 # Sitemaps
 Sitemap: https://ai-doc-analyzer-ccuv.onrender.com/sitemap.xml
+
