@@ -18,7 +18,7 @@ import jwt
 from datetime import datetime, timezone, timedelta
 from app.core.database import db_manager
 
-JWT_SECRET = os.getenv("JWT_SECRET", "super-secret-docai-jwt-key-2026-production-grade")
+JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 30
 FREE_QUERY_LIMIT = 10
@@ -48,6 +48,12 @@ def ensure_utc(dt: datetime | str | None) -> datetime | None:
 PLAN_LIMITS = {
     "free": 10,
     "day": 100,
+    "month": 100,
+    "year": 200,
+}
+
+PLAN_TOTAL_LIMITS = {
+    "day": 100,
     "month": 500,
     "year": 2500,
 }
@@ -67,6 +73,8 @@ class AuthService:
             return False
 
     def create_access_token(self, user_id: str, email: str) -> str:
+        if not JWT_SECRET:
+            raise RuntimeError("JWT_SECRET must be configured before issuing access tokens.")
         expire = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
         payload = {
             "sub": user_id,
@@ -77,6 +85,8 @@ class AuthService:
         return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
     def decode_access_token(self, token: str) -> dict | None:
+        if not JWT_SECRET:
+            return None
         try:
             return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         except Exception:
@@ -88,6 +98,7 @@ class AuthService:
         query_count = int(user.get("query_count") or 0)
         query_count_today = int(user.get("query_count_today") or 0)
         query_reset_at = user.get("query_reset_at")
+        plan_query_count = int(user.get("plan_query_count") or 0)
 
         # Check if plan has expired
         is_pro = False
@@ -116,6 +127,8 @@ class AuthService:
             "query_reset_at": query_reset_at,
             "plan": plan,
             "plan_expires_at": expires_at,
+            "plan_query_count": plan_query_count if is_pro else None,
+            "plan_query_limit": PLAN_TOTAL_LIMITS.get(plan) if is_pro else None,
             "is_pro": is_pro,
             "model_name": model_name,
             "created_at": user.get("created_at"),

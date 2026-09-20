@@ -4,12 +4,14 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import asyncio
+from pymongo import ReturnDocument
 from dotenv import load_dotenv
 
 load_dotenv()
 
 MONGODB_URI = os.getenv("MONGODB_URI", "").strip()
 MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "document_ai").strip()
+REQUIRE_MONGODB = os.getenv("REQUIRE_MONGODB", "false").strip().lower() in {"1", "true", "yes"}
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 FALLBACK_STORE_PATH = DATA_DIR / "local_store.json"
@@ -46,6 +48,7 @@ class DatabaseManager:
         self._using_mongo = False
         self._lock = asyncio.Lock()
         self._initialized = False
+        self._store_lock = asyncio.Lock()
 
     async def initialize(self):
         if self._initialized:
@@ -86,6 +89,8 @@ class DatabaseManager:
                 self._using_mongo = False
 
             if not self._using_mongo:
+                if REQUIRE_MONGODB:
+                    raise RuntimeError("MongoDB is required but could not be initialized.")
                 DATA_DIR.mkdir(parents=True, exist_ok=True)
                 if not FALLBACK_STORE_PATH.exists():
                     initial_data = {"users": {}, "payments": {}, "queries": [], "otps": {}, "documents": {}}
@@ -283,28 +288,81 @@ class DatabaseManager:
                 res = await self._db.users.find_one_and_update(
                     {"_id": oid},
                     {"$inc": {"query_count": 1, "query_count_today": 1}},
-                    return_document=True,
+                    return_document=ReturnDocument.AFTER,
                 )
             except Exception:
                 res = await self._db.users.find_one_and_update(
                     {"id": user_id},
                     {"$inc": {"query_count": 1, "query_count_today": 1}},
-                    return_document=True,
+                    return_document=ReturnDocument.AFTER,
                 )
             if res:
                 res["id"] = str(res.pop("_id", res.get("id")))
             return res
-        else:
-            store = self._read_local_store()
-            if user_id in store.get("users", {}):
-                u = store["users"][user_id]
-                u["query_count"] = u.get("query_count", 0) + 1
-                u["query_count_today"] = u.get("query_count_today", 0) + 1
-                self._write_local_store(store)
-                res = dict(u)
-                res["id"] = user_id
-                return res
+
+        store = self._read_local_store()
+        if user_id in store.get("users", {}):
+            user = store["users"][user_id]
+            user["query_count"] = user.get("query_count", 0) + 1
+            user["query_count_today"] = user.get("query_count_today", 0) + 1
+            self._write_local_store(store)
+            result = dict(user)
+            result["id"] = user_id
+            return result
+        return None
+
+    async def reserve_query_slot(
+        self,
+        user_id: str,
+        daily_limit: int,
+        plan_total_limit: int | None = None,
+    ) -> dict | None:
+        """Atomically reserves a quota slot before costly model execution."""
+        await self.initialize()
+        refreshed = await self.check_and_refresh_quota(user_id)
+        if not refreshed:
             return None
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if self._using_mongo:
+            from bson import ObjectId
+            try:
+                user_filter = {"_id": ObjectId(user_id), "query_count_today": {"$lt": daily_limit}}
+            except Exception:
+                user_filter = {"id": user_id, "query_count_today": {"$lt": daily_limit}}
+            if plan_total_limit is not None:
+                user_filter["$or"] = [
+                    {"plan_query_count": {"$lt": plan_total_limit}},
+                    {"plan_query_count": {"$exists": False}},
+                ]
+            increments = {"query_count": 1, "query_count_today": 1}
+            if plan_total_limit is not None:
+                increments["plan_query_count"] = 1
+            updated = await self._db.users.find_one_and_update(
+                user_filter,
+                {"$inc": increments, "$set": {"updated_at": now_iso}},
+                return_document=ReturnDocument.AFTER,
+            )
+            if updated:
+                updated["id"] = str(updated.pop("_id"))
+            return updated
+
+        async with self._store_lock:
+            store = self._read_local_store()
+            user = store.get("users", {}).get(user_id)
+            if not user or int(user.get("query_count_today") or 0) >= daily_limit:
+                return None
+            if plan_total_limit is not None and int(user.get("plan_query_count") or 0) >= plan_total_limit:
+                return None
+            user["query_count"] = int(user.get("query_count") or 0) + 1
+            user["query_count_today"] = int(user.get("query_count_today") or 0) + 1
+            if plan_total_limit is not None:
+                user["plan_query_count"] = int(user.get("plan_query_count") or 0) + 1
+            user["updated_at"] = now_iso
+            self._write_local_store(store)
+            result = dict(user)
+            result["id"] = user_id
+            return result
 
     # --------------------------------------------------------
     # Payment & Subscription Operations
@@ -350,11 +408,18 @@ class DatabaseManager:
         }
 
         if self._using_mongo:
-            await self._db.payments.update_one({"order_id": order_id}, {"$set": updates})
-            return await self.get_payment_by_order_id(order_id)
+            from pymongo import ReturnDocument
+            payment = await self._db.payments.find_one_and_update(
+                {"order_id": order_id, "status": "created"},
+                {"$set": updates},
+                return_document=ReturnDocument.AFTER,
+            )
+            if payment:
+                payment["id"] = str(payment.pop("_id"))
+            return payment
         else:
             store = self._read_local_store()
-            if order_id in store.get("payments", {}):
+            if order_id in store.get("payments", {}) and store["payments"][order_id].get("status") == "created":
                 store["payments"][order_id].update(updates)
                 self._write_local_store(store)
                 return store["payments"][order_id]
@@ -702,4 +767,3 @@ class DatabaseManager:
 
 # Singleton
 db_manager = DatabaseManager()
-

@@ -13,6 +13,7 @@ const SUPPORTED_FORMATS = [
   { label: 'PDF', ext: '.pdf' },
   { label: 'Word', ext: '.docx' },
   { label: 'Excel', ext: '.xlsx' },
+  { label: 'CSV', ext: '.csv' },
   { label: 'PowerPoint', ext: '.pptx' },
   { label: 'HTML', ext: '.html' },
   { label: 'Markdown', ext: '.md' },
@@ -85,7 +86,7 @@ export default function LandingView({ onUploadClick, onFilesSelected, uploadErro
               Drop documents here, or <span className="dropzone-browse">browse files</span>
             </p>
             <p className="dropzone-secondary">
-              Supports files up to 10 MB each (.pdf, .docx, .xlsx, .pptx, .txt, .md)
+              Supports files up to 10 MB each (.pdf, .docx, .xlsx, .csv, .pptx, .html, .txt, .md)
             </p>
           </div>
 

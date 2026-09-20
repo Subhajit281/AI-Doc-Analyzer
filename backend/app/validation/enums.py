@@ -5,6 +5,7 @@ class DocumentType(str,Enum):
     DOCX = "docx"
     PPTX = "pptx"
     XLSX = "xlsx"
+    CSV = "csv"
     HTML = "html"
     MARKDOWN = "md"
     TXT = "txt"

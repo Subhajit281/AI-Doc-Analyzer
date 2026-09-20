@@ -26,6 +26,12 @@ services:
         value: qwen/qwen3.8-27b
       - key: MONGODB_DB_NAME
         value: document_ai
+      - key: APP_ENV
+        value: production
+      - key: REQUIRE_MONGODB
+        value: "true"
+      - key: ALLOWED_ORIGINS
+        value: https://document-ai-frontend.onrender.com
       - key: GROQ_API_KEY
         sync: false
       - key: GEMINI_API_KEY
@@ -48,6 +54,10 @@ services:
         sync: false
       - key: EMAILJS_PRIVATE_KEY
         sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
 
   # ============================================================
   # Frontend Static Site
@@ -68,4 +78,3 @@ services:
           type: web
           name: document-ai-backend
           property: host
-

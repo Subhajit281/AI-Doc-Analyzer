@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict
 from app.services.payment_service import payment_service
 from app.api.auth import get_current_user_required
 
@@ -7,13 +9,13 @@ router = APIRouter()
 
 
 class CreateOrderRequest(BaseModel):
-    amount: int | None = None          # in paise (e.g., 2900 for ₹29)
-    plan: str | None = None            # 'day', 'month', 'year'
-    currency: str = "INR"
-    receipt: str | None = None
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    plan: Literal["day", "month", "year"]
+    currency: Literal["INR", "USD"] = "INR"
 
 
 class VerifyPaymentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     # Support both custom and standard Razorpay checkout response field names
     order_id: str | None = None
     payment_id: str | None = None
@@ -37,16 +39,14 @@ async def create_order(
         return await payment_service.create_order(
             user_id=user["id"],
             plan_id=req.plan,
-            amount_paise=req.amount,
             currency=req.currency,
-            receipt=req.receipt,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Order creation failed: {str(exc)}")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Unable to create a payment order right now.")
 
 
 @router.post("/verify")
@@ -77,5 +77,5 @@ async def verify_payment(
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Payment verification failed: {str(exc)}")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Unable to verify the payment right now.")

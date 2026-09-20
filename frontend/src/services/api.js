@@ -1,7 +1,12 @@
-const API_URL = (
+const configuredApiUrl = (
   import.meta.env.VITE_API_URL ||
   'https://ai-doc-analyzer-ccuv.onrender.com'
+).trim();
+const API_URL = (configuredApiUrl.startsWith('http')
+  ? configuredApiUrl
+  : `https://${configuredApiUrl}`
 ).replace(/\/+$/, '');
+const REQUEST_TIMEOUT_MS = 45_000;
 
 // ============================================================
 // API ERROR
@@ -20,6 +25,29 @@ function getAuthHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+async function apiFetch(url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new ApiError('The request took too long. Please try again.', 408);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+async function responseJson(response, fallbackMessage) {
+  try {
+    return await response.json();
+  } catch {
+    throw new ApiError(fallbackMessage, response.status);
+  }
+}
+
 // ============================================================
 // UPLOAD DOCUMENT
 // ============================================================
@@ -30,14 +58,14 @@ export async function uploadDocument(file) {
 
   let response;
   try {
-    response = await fetch(`${API_URL}/documents/upload`, {
+    response = await apiFetch(`${API_URL}/documents/upload`, {
       method: 'POST',
       headers: {
         ...getAuthHeaders(),
       },
       body: formData,
-    });
-  } catch (err) {
+    }, 120_000);
+  } catch {
     throw new ApiError('Unable to upload the document. Please try again.', 0);
   }
 
@@ -56,7 +84,7 @@ export async function uploadDocument(file) {
 
   try {
     return await response.json();
-  } catch (err) {
+  } catch {
     throw new ApiError('Unable to upload the document. Please try again.', response.status);
   }
 }
@@ -80,7 +108,7 @@ export async function askQuestion(documentId, query, conversationId) {
 
   let response;
   try {
-    response = await fetch(`${API_URL}/documents/${documentId}/query`, {
+    response = await apiFetch(`${API_URL}/documents/${documentId}/query`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -90,8 +118,8 @@ export async function askQuestion(documentId, query, conversationId) {
         query: query.trim(),
         conversation_id: conversationId.trim(),
       }),
-    });
-  } catch (err) {
+    }, 90_000);
+  } catch {
     throw new ApiError('Unable to get a response. Please check your connection.', 0);
   }
 
@@ -140,7 +168,7 @@ export async function askQuestion(documentId, query, conversationId) {
       ...data,
       answer,
     };
-  } catch (err) {
+  } catch {
     throw new ApiError('Unable to parse response. Please try again.', response.status);
   }
 }
@@ -151,7 +179,7 @@ export async function askQuestion(documentId, query, conversationId) {
 
 export async function getUserDocuments() {
   try {
-    const response = await fetch(`${API_URL}/documents`, {
+    const response = await apiFetch(`${API_URL}/documents`, {
       headers: {
         ...getAuthHeaders(),
       },
@@ -173,7 +201,7 @@ export async function deleteDocument(documentId) {
   if (!documentId) return;
 
   try {
-    const response = await fetch(`${API_URL}/documents/${documentId}`, {
+    const response = await apiFetch(`${API_URL}/documents/${documentId}`, {
       method: 'DELETE',
       headers: {
         ...getAuthHeaders(),
@@ -181,12 +209,14 @@ export async function deleteDocument(documentId) {
     });
 
     if (!response.ok) {
-      console.warn(`Failed to delete document ${documentId}: status ${response.status}`);
+      const data = await responseJson(response, 'Unable to delete the document.');
+      throw new ApiError(data.detail || 'Unable to delete the document.', response.status);
     }
 
-    return await response.json();
+    return await responseJson(response, 'Unable to delete the document.');
   } catch (err) {
-    console.warn(`Error deleting document ${documentId}:`, err);
+    if (err instanceof ApiError) throw err;
+    throw new ApiError('Unable to delete the document. Please try again.', 0);
   }
 }
 
@@ -195,13 +225,13 @@ export async function deleteDocument(documentId) {
 // ============================================================
 
 export async function signupUser(email, password, fullName = '') {
-  const response = await fetch(`${API_URL}/auth/signup`, {
+  const response = await apiFetch(`${API_URL}/auth/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password, full_name: fullName }),
   });
 
-  const data = await response.json();
+  const data = await responseJson(response, 'Sign up failed.');
   if (!response.ok) {
     throw new ApiError(data.detail || 'Sign up failed', response.status);
   }
@@ -209,13 +239,13 @@ export async function signupUser(email, password, fullName = '') {
 }
 
 export async function loginUser(email, password) {
-  const response = await fetch(`${API_URL}/auth/login`, {
+  const response = await apiFetch(`${API_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
 
-  const data = await response.json();
+  const data = await responseJson(response, 'Login failed.');
   if (!response.ok) {
     throw new ApiError(data.detail || 'Invalid login credentials', response.status);
   }
@@ -223,13 +253,13 @@ export async function loginUser(email, password) {
 }
 
 export async function sendOtp(email, purpose = 'login') {
-  const response = await fetch(`${API_URL}/auth/send-otp`, {
+  const response = await apiFetch(`${API_URL}/auth/send-otp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, purpose }),
   });
 
-  const data = await response.json();
+  const data = await responseJson(response, 'Failed to send verification code.');
   if (!response.ok) {
     throw new ApiError(data.detail || 'Failed to send verification code', response.status);
   }
@@ -237,7 +267,7 @@ export async function sendOtp(email, purpose = 'login') {
 }
 
 export async function verifyOtp(email, otp, purpose = 'login', password = '', fullName = '') {
-  const response = await fetch(`${API_URL}/auth/verify-otp`, {
+  const response = await apiFetch(`${API_URL}/auth/verify-otp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -249,7 +279,7 @@ export async function verifyOtp(email, otp, purpose = 'login', password = '', fu
     }),
   });
 
-  const data = await response.json();
+  const data = await responseJson(response, 'Invalid verification code.');
   if (!response.ok) {
     throw new ApiError(data.detail || 'Invalid verification code', response.status);
   }
@@ -261,7 +291,7 @@ export async function getCurrentUser() {
   if (!token) return null;
 
   try {
-    const response = await fetch(`${API_URL}/auth/me`, {
+    const response = await apiFetch(`${API_URL}/auth/me`, {
       headers: { ...getAuthHeaders() },
     });
     if (!response.ok) {
@@ -275,10 +305,10 @@ export async function getCurrentUser() {
 }
 
 export async function getPurchaseHistory() {
-  const response = await fetch(`${API_URL}/auth/history`, {
+  const response = await apiFetch(`${API_URL}/auth/history`, {
     headers: { ...getAuthHeaders() },
   });
-  const data = await response.json();
+  const data = await responseJson(response, 'Failed to fetch history.');
   if (!response.ok) {
     throw new ApiError(data.detail || 'Failed to fetch history', response.status);
   }
@@ -290,8 +320,8 @@ export async function getPurchaseHistory() {
 // ============================================================
 
 export async function getPlans() {
-  const response = await fetch(`${API_URL}/payments/plans`);
-  return await response.json();
+  const response = await apiFetch(`${API_URL}/payments/plans`);
+  return await responseJson(response, 'Failed to load plans.');
 }
 
 export async function createOrder(planOrPayload, currency = 'INR') {
@@ -299,7 +329,7 @@ export async function createOrder(planOrPayload, currency = 'INR') {
     ? planOrPayload
     : { plan: planOrPayload, currency };
 
-  const response = await fetch(`${API_URL}/payments/create-order`, {
+  const response = await apiFetch(`${API_URL}/payments/create-order`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -308,7 +338,7 @@ export async function createOrder(planOrPayload, currency = 'INR') {
     body: JSON.stringify(payload),
   });
 
-  const data = await response.json();
+  const data = await responseJson(response, 'Failed to create payment order.');
   if (!response.ok) {
     throw new ApiError(data.detail || 'Failed to create payment order', response.status);
   }
@@ -324,7 +354,7 @@ export async function verifyPayment(orderId, paymentId, signature = '') {
         signature: signature,
       };
 
-  const response = await fetch(`${API_URL}/payments/verify-payment`, {
+  const response = await apiFetch(`${API_URL}/payments/verify-payment`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -333,7 +363,7 @@ export async function verifyPayment(orderId, paymentId, signature = '') {
     body: JSON.stringify(payload),
   });
 
-  const data = await response.json();
+  const data = await responseJson(response, 'Payment verification failed.');
   if (!response.ok) {
     throw new ApiError(data.detail || 'Payment verification failed', response.status);
   }

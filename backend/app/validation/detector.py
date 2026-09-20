@@ -11,6 +11,7 @@ _DOCUMENT_TYPE_MAP = {
     "docx": DocumentType.DOCX,
     "pptx": DocumentType.PPTX,
     "xlsx": DocumentType.XLSX,
+    "csv": DocumentType.CSV,
     "html": DocumentType.HTML,
     "htm": DocumentType.HTML,
     "md": DocumentType.MARKDOWN,
@@ -27,6 +28,7 @@ _MIME_TYPE_MAP = {
     "text/html": DocumentType.HTML,
 
     "text/markdown": DocumentType.MARKDOWN,
+    "text/csv": DocumentType.CSV,
 
     "application/vnd.openxmlformats-officedocument"
     ".wordprocessingml.document": DocumentType.DOCX,
@@ -123,5 +125,8 @@ class DocumentDetector:
 
         if document_type == DocumentType.HTML:
             return "text/html"
+
+        if document_type == DocumentType.CSV:
+            return "text/csv"
 
         return None

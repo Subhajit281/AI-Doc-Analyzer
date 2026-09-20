@@ -120,6 +120,8 @@ class LightweightParser(BaseParser):
                 return self._parse_pptx(file_path, validation)
             elif doc_type == DocumentType.XLSX:
                 return self._parse_xlsx(file_path, validation)
+            elif doc_type == DocumentType.CSV:
+                return self._parse_csv(file_path, validation)
             elif doc_type == DocumentType.HTML:
                 return self._parse_html(file_path, validation)
             else:  # TXT, MARKDOWN, UNKNOWN fallback
@@ -558,6 +560,58 @@ class LightweightParser(BaseParser):
         )
 
     # =========================================================
+    # CSV Parser (standard library, negligible memory)
+    # =========================================================
+
+    def _parse_csv(
+        self,
+        file_path: Path,
+        validation: ValidationResult,
+    ) -> ParsedDocument:
+        import csv
+
+        with file_path.open("r", encoding="utf-8-sig", errors="replace", newline="") as csv_file:
+            rows = list(csv.reader(csv_file))
+
+        if not rows:
+            raise ValueError("CSV document is empty.")
+
+        header = [cell.strip() for cell in rows[0]]
+        markdown_rows = [
+            "| " + " | ".join(header) + " |",
+            "| " + " | ".join(["---"] * len(header)) + " |",
+        ]
+        for row in rows[1:]:
+            values = [cell.strip() for cell in row]
+            if any(values):
+                markdown_rows.append("| " + " | ".join(values) + " |")
+        markdown = "\n".join(markdown_rows)
+        title = file_path.stem.replace("_", " ").replace("-", " ").title()
+        section = LightweightDocumentItem(text=title, label="section_header", level=1, page_no=1)
+        table = LightweightDocumentItem(
+            text=markdown,
+            label="table",
+            level=1,
+            page_no=1,
+            table_markdown=markdown,
+        )
+        raw_doc = LightweightRawDocument(
+            items=[(section, 1), (table, 1)],
+            pages_count=1,
+            markdown=f"# {title}\n\n{markdown}",
+            text=f"{title}\n{markdown}",
+        )
+        return ParsedDocument(
+            source=file_path,
+            validation=validation,
+            markdown=raw_doc.export_to_markdown(),
+            text=raw_doc.export_to_text(),
+            metadata={},
+            raw_document=raw_doc,
+            pages=1,
+        )
+
+    # =========================================================
     # HTML Parser (using beautifulsoup4, ~2 MB RAM)
     # =========================================================
 
@@ -703,4 +757,3 @@ class LightweightParser(BaseParser):
             raw_document=raw_doc,
             pages=1,
         )
-

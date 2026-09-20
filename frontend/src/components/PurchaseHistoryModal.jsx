@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, History, CheckCircle2, AlertCircle, Loader2, Calendar, Receipt, Crown } from 'lucide-react';
+import { X, History, CheckCircle2, AlertCircle, Loader2, Receipt, Crown } from 'lucide-react';
 import { getPurchaseHistory, getCurrentUser } from '../services/api';
 import './PurchaseHistoryModal.css';
 
@@ -130,8 +130,8 @@ export default function PurchaseHistoryModal({ isOpen, onClose, user, onUserRefr
             <div className="history-timeline">
               {payments.map((p, idx) => (
                 <div key={p.id || idx} className="timeline-item">
-                  <div className="timeline-status-icon">
-                    <CheckCircle2 size={16} className="timeline-check" />
+                  <div className="timeline-status-icon" title={p.status || 'created'}>
+                    {p.status === 'paid' ? <CheckCircle2 size={16} className="timeline-check" /> : <AlertCircle size={16} />}
                   </div>
                   <div className="timeline-details">
                     <div className="timeline-row-top">
@@ -139,11 +139,13 @@ export default function PurchaseHistoryModal({ isOpen, onClose, user, onUserRefr
                         {p.plan ? `${p.plan.toUpperCase()} Pass` : 'Pro Subscription'}
                       </span>
                       <span className="timeline-amount">
-                        {p.currency === 'USD' ? `$${p.amount}` : `₹${p.amount_inr || p.amount}`}
+                        {p.currency === 'USD'
+                          ? `$${Number(p.amount_display ?? p.amount / 100).toFixed(2)}`
+                          : `₹${Number(p.amount_display ?? p.amount_inr ?? p.amount / 100).toFixed(2)}`}
                       </span>
                     </div>
                     <div className="timeline-row-bottom">
-                      <span className="timeline-order-id">Order: {p.order_id}</span>
+                      <span className="timeline-order-id">{p.status === 'paid' ? 'Paid' : 'Pending'} · Order: {p.order_id}</span>
                       <span className="timeline-date">
                         {p.created_at ? new Date(p.created_at).toLocaleDateString() : ''}
                       </span>
@@ -158,4 +160,3 @@ export default function PurchaseHistoryModal({ isOpen, onClose, user, onUserRefr
     </div>
   );
 }
-

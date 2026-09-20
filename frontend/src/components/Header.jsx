@@ -1,12 +1,6 @@
-import UploadButton from './UploadButton';
 import './Header.css';
 
-export default function Header({
-  hasDocument,
-  onFileSelect,
-  isUploading,
-  fileInputRef,
-}) {
+export default function Header() {
   return (
     <header className="header">
       <div className="header-inner">

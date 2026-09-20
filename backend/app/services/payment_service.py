@@ -11,11 +11,6 @@ _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
 load_dotenv(dotenv_path=_env_path)
 load_dotenv()
 
-# Default fallback test credentials in case .env is missing/corrupted
-DEFAULT_TEST_KEY_ID = "rzp_test_TeFbpgyeysB2BK"
-DEFAULT_TEST_KEY_SECRET = "OGTYYGxZ6AkS1IwNoxnkDkUB"
-
-
 def get_razorpay_key_id() -> str:
     """Dynamically reads RAZORPAY_KEY_ID from .env or os.environ."""
     if _env_path.exists():
@@ -23,7 +18,7 @@ def get_razorpay_key_id() -> str:
         val = vals.get("RAZORPAY_KEY_ID")
         if val and val.strip():
             return val.strip()
-    return os.getenv("RAZORPAY_KEY_ID", "").strip() or DEFAULT_TEST_KEY_ID
+    return os.getenv("RAZORPAY_KEY_ID", "").strip()
 
 
 def get_razorpay_key_secret() -> str:
@@ -38,16 +33,7 @@ def get_razorpay_key_secret() -> str:
         val = os.getenv(k, "").strip()
         if val:
             return val
-    return DEFAULT_TEST_KEY_SECRET
-
-
-def get_razorpay_merchant_upi() -> str:
-    if _env_path.exists():
-        vals = dotenv_values(_env_path)
-        val = vals.get("RAZORPAY_MERCHANT_UPI")
-        if val and val.strip():
-            return val.strip()
-    return os.getenv("RAZORPAY_MERCHANT_UPI", "subhajitsarkar281@oksbi").strip()
+    return ""
 
 
 PLANS = {
@@ -118,54 +104,19 @@ class PaymentService:
         self,
         user_id: str,
         plan_id: str | None = None,
-        amount_paise: int | None = None,
         currency: str = "INR",
-        receipt: str | None = None,
     ) -> dict:
         currency = currency.upper()
+        if plan_id not in PLANS:
+            raise ValueError("Choose a valid subscription plan.")
+        if currency not in {"INR", "USD"}:
+            raise ValueError("Unsupported payment currency.")
 
-        # Determine amount and plan
-        if amount_paise is not None:
-            if amount_paise < 100:
-                raise ValueError("Minimum amount is 100 paise (₹1.00).")
-            amount_cents = int(amount_paise)
-            matched_plan = None
-            for p in PLANS.values():
-                if int(round(p["price_inr"] * 100)) == amount_cents:
-                    matched_plan = p
-                    plan_id = p["id"]
-                    break
-            plan = matched_plan or {
-                "id": plan_id or "custom",
-                "name": "Pro Subscription",
-                "price_inr": amount_cents / 100.0,
-                "price_usd": round(amount_cents / 8300.0, 2),
-                "duration_days": 30,
-            }
-            amount_display = amount_cents / 100.0
-            inr_equivalent = amount_cents / 100.0
-        elif plan_id:
-            if plan_id not in PLANS:
-                raise ValueError(f"Invalid plan: '{plan_id}'. Choose from: day, month, year.")
-            plan = PLANS[plan_id]
-            if currency == "USD":
-                amount_display = plan["price_usd"]
-                amount_cents = int(round(amount_display * 100))
-                inr_equivalent = plan["price_inr"]
-            else:
-                amount_display = plan["price_inr"]
-                amount_cents = int(round(amount_display * 100))
-                inr_equivalent = plan["price_inr"]
-            if amount_cents < 100:
-                raise ValueError("Minimum amount is 100 paise (₹1.00).")
-        else:
-            plan_id = "month"
-            plan = PLANS["month"]
-            amount_display = plan["price_inr"]
-            amount_cents = int(round(amount_display * 100))
-            inr_equivalent = plan["price_inr"]
-
-        order_receipt = receipt or f"rcpt_{user_id[:8]}_{int(datetime.now().timestamp())}"
+        plan = PLANS[plan_id]
+        amount_display = plan["price_usd"] if currency == "USD" else plan["price_inr"]
+        amount_cents = int(round(amount_display * 100))
+        inr_equivalent = plan["price_inr"]
+        order_receipt = f"rcpt_{user_id[:8]}_{uuid.uuid4().hex[:16]}"
 
         client = self.get_client()
         if not client:
@@ -189,13 +140,6 @@ class PaymentService:
         except Exception as e:
             raise RuntimeError(f"Razorpay API order creation failed: {e}")
 
-        # Universal UPI string for optional QR display
-        merchant_upi = get_razorpay_merchant_upi()
-        upi_string = (
-            f"upi://pay?pa={merchant_upi}&pn=DocAI%20Analyzer"
-            f"&am={inr_equivalent:.2f}&cu=INR&tr={order_id}"
-        )
-
         active_key_id = get_razorpay_key_id()
 
         payment_record = {
@@ -208,7 +152,6 @@ class PaymentService:
             "amount_inr": inr_equivalent,
             "receipt": order_receipt,
             "status": "created",
-            "upi_intent": upi_string,
             "key_id": active_key_id,
         }
         await db_manager.create_payment_order(payment_record)
@@ -222,7 +165,6 @@ class PaymentService:
             "plan": plan,
             "amount_display": amount_display,
             "amount_inr": inr_equivalent,
-            "upi_qr_data": upi_string,
         }
 
     async def verify_payment(self, order_id: str, payment_id: str, signature: str, user_id: str) -> dict:
@@ -232,6 +174,10 @@ class PaymentService:
         payment = await db_manager.get_payment_by_order_id(order_id)
         if not payment:
             raise ValueError(f"Payment order '{order_id}' not found in database.")
+        if payment.get("user_id") != user_id:
+            raise ValueError("Payment order does not belong to this account.")
+        if payment.get("status") != "created":
+            raise ValueError("This payment order has already been processed.")
 
         key_secret = get_razorpay_key_secret()
         if not key_secret:
@@ -248,12 +194,25 @@ class PaymentService:
         if not hmac.compare_digest(expected_signature, signature):
             raise ValueError("Payment verification failed: Signature mismatch.")
 
+        client = self.get_client()
+        if not client:
+            raise RuntimeError("Payment gateway is not configured.")
+        try:
+            gateway_payment = client.payment.fetch(payment_id)
+            gateway_order = client.order.fetch(order_id)
+        except Exception as exc:
+            raise RuntimeError("Could not confirm payment status with the payment gateway.") from exc
+        if gateway_payment.get("order_id") != order_id or gateway_payment.get("status") != "captured" or gateway_order.get("status") != "paid":
+            raise ValueError("Payment has not been captured. Please wait a moment and try again.")
+
         # Update payment record in database
-        await db_manager.mark_payment_paid(
+        marked_payment = await db_manager.mark_payment_paid(
             order_id=order_id,
             payment_id=payment_id,
             signature=signature,
         )
+        if not marked_payment:
+            raise ValueError("This payment order has already been processed.")
 
         # Extend user subscription
         plan_id = payment.get("plan", "month")
@@ -277,6 +236,7 @@ class PaymentService:
         await db_manager.update_user(user_id, {
             "plan": plan_id,
             "plan_expires_at": new_expiry.isoformat(),
+            "plan_query_count": 0,
         })
 
         return {

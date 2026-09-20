@@ -1,20 +1,24 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
-import traceback
+import logging
+
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Request
 
 from app.services.document_service import (
     process_document,
     delete_document,
 )
 from app.api.auth import get_current_user_required
+from app.core.rate_limit import rate_limiter
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/upload")
 async def upload_document(
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user_required),
+    request: Request = None,
 ):
 
     # ============================================================
@@ -33,18 +37,10 @@ async def upload_document(
 
     try:
 
-        print("\n" + "=" * 80)
-        print("DOCUMENT UPLOAD STARTED")
-        print("=" * 80)
-        print("Filename:", file.filename)
-        print("Content type:", file.content_type)
-        print("=" * 80)
+        client_key = request.client.host if request and request.client else "unknown"
+        rate_limiter.check(f"upload:{user['id']}:{client_key}", limit=20, window_seconds=3600)
 
         result = await process_document(file, user_id=user["id"])
-
-        print("\n" + "=" * 80)
-        print("DOCUMENT PROCESSING SUCCESS")
-        print("=" * 80)
 
         return result
 
@@ -53,13 +49,6 @@ async def upload_document(
     # ============================================================
 
     except ValueError as exc:
-
-        print("\n" + "=" * 80)
-        print("DOCUMENT VALIDATION ERROR")
-        print("=" * 80)
-        print("Error:", repr(exc))
-        traceback.print_exc()
-        print("=" * 80)
 
         raise HTTPException(
             status_code=400,
@@ -70,23 +59,11 @@ async def upload_document(
     # Unexpected error
     # ============================================================
 
-    except Exception as exc:
-
-        print("\n" + "=" * 80)
-        print("DOCUMENT PROCESSING FAILED")
-        print("=" * 80)
-
-        print("Exception type:", type(exc).__name__)
-        print("Exception:", repr(exc))
-
-        print("\nFULL TRACEBACK:")
-        traceback.print_exc()
-
-        print("=" * 80)
-
+    except Exception:
+        logger.exception("Document processing failed")
         raise HTTPException(
             status_code=500,
-            detail=f"Document processing failed: {str(exc)}"
+            detail="Document processing failed. Please try another supported file."
         )
 
 
@@ -118,9 +95,9 @@ async def remove_document(
         return await delete_document(document_id.strip(), user_id=user["id"])
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
-    except Exception as exc:
-        traceback.print_exc()
+    except Exception:
+        logger.exception("Document deletion failed")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to delete document: {str(exc)}"
+            detail="Failed to delete the document. Please try again."
         )

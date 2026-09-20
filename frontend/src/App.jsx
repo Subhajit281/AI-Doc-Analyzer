@@ -48,8 +48,8 @@ export default function App() {
 
   // Messages scoped per document
   const [messagesByDoc, setMessagesByDoc] = useState({});
+  const [conversationIdsByDoc, setConversationIdsByDoc] = useState({});
   const [queryingDocKey, setQueryingDocKey] = useState(null);
-  const [conversationId] = useState(() => crypto.randomUUID());
 
   const fileInputRef = useRef(null);
 
@@ -113,7 +113,6 @@ export default function App() {
 
   const messages = activeDocKey ? messagesByDoc[activeDocKey] || [] : [];
   const isReady = activeDocument?.status === 'ready';
-  const isQuerying = queryingDocKey !== null && queryingDocKey === activeDocKey;
 
   // ----------------------------------------------------------
   // Document Upload with 10 MB Limit Check
@@ -160,7 +159,6 @@ export default function App() {
                   ? {
                       ...d,
                       ...result,
-                      key: result.document_id || d.key,
                       document_id: result.document_id,
                       status: result.status || 'ready',
                       days_remaining: result.days_remaining ?? 7,
@@ -210,14 +208,22 @@ export default function App() {
   const handleDeleteDocument = useCallback(
     async (docKey) => {
       const docToDelete = documents.find((d) => d.key === docKey);
-      if (docToDelete?.document_id) {
-        deleteDocument(docToDelete.document_id).catch((err) =>
-          console.warn('Backend deletion notice:', err)
-        );
+      try {
+        if (docToDelete?.document_id) {
+          await deleteDocument(docToDelete.document_id);
+        }
+      } catch (err) {
+        setUploadError(err.message || 'Unable to delete the document.');
+        return;
       }
 
       setDocuments((prev) => prev.filter((d) => d.key !== docKey));
       setMessagesByDoc((prev) => {
+        const next = { ...prev };
+        delete next[docKey];
+        return next;
+      });
+      setConversationIdsByDoc((prev) => {
         const next = { ...prev };
         delete next[docKey];
         return next;
@@ -241,6 +247,10 @@ export default function App() {
       ...prev,
       [activeDocKey]: [],
     }));
+    setConversationIdsByDoc((prev) => ({
+      ...prev,
+      [activeDocKey]: crypto.randomUUID(),
+    }));
   }, [activeDocKey]);
 
   // ----------------------------------------------------------
@@ -248,7 +258,7 @@ export default function App() {
   // ----------------------------------------------------------
   const handleSend = useCallback(
     async (text) => {
-      if (!activeDocument || activeDocument.status !== 'ready' || isQuerying) {
+      if (!activeDocument || activeDocument.status !== 'ready' || queryingDocKey) {
         return;
       }
 
@@ -270,6 +280,10 @@ export default function App() {
       }
 
       const docKey = activeDocument.key;
+      const conversationId = conversationIdsByDoc[docKey] || crypto.randomUUID();
+      if (!conversationIdsByDoc[docKey]) {
+        setConversationIdsByDoc((prev) => ({ ...prev, [docKey]: conversationId }));
+      }
 
       const userMessage = {
         id: nextId(),
@@ -363,7 +377,7 @@ export default function App() {
         setQueryingDocKey(null);
       }
     },
-    [activeDocument, isQuerying, conversationId, user]
+    [activeDocument, queryingDocKey, conversationIdsByDoc, user]
   );
 
   const handleLogout = () => {
@@ -372,10 +386,11 @@ export default function App() {
     setDocuments([]);
     setActiveDocKey(null);
     setMessagesByDoc({});
+    setConversationIdsByDoc({});
     setIsAuthModalOpen(true);
   };
 
-  const handlePaymentSuccess = (result) => {
+  const handlePaymentSuccess = () => {
     getCurrentUser().then((u) => {
       if (u) setUser(u);
     });
@@ -387,7 +402,7 @@ export default function App() {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pdf,.doc,.docx,.xlsx,.xls,.csv,.pptx,.ppt,.html,.txt,.md"
+        accept=".pdf,.docx,.xlsx,.csv,.pptx,.html,.txt,.md"
         multiple
         hidden
         onChange={handleFileInputChange}
@@ -436,7 +451,7 @@ export default function App() {
               onSend={handleSend}
               onUploadClick={handleUploadClick}
               disabled={false}
-              sendDisabled={!isReady || isQuerying}
+              sendDisabled={!isReady || queryingDocKey !== null}
               placeholder={
                 activeDocument?.status === 'uploading'
                   ? 'Processing document…'
@@ -451,7 +466,7 @@ export default function App() {
 
       {/* Auth Modal (Strict authentication wall: cannot dismiss without logging in) */}
       <AuthModal
-        isOpen={isAuthModalOpen || !user}
+        isOpen={authChecked && (isAuthModalOpen || !user)}
         isDismissible={!!user}
         onClose={() => {
           if (user) setIsAuthModalOpen(false);

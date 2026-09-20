@@ -17,6 +17,8 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 DOCUMENT_STORAGE = (
     BASE_DIR / "data" / "documents"
 )
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+READ_CHUNK_SIZE = 1024 * 1024
 
 
 # ============================================================
@@ -246,16 +248,21 @@ class DocumentService:
             file.filename
         ).name
 
-        contents = await file.read()
+        chunks = []
+        total_size = 0
+        while True:
+            chunk = await file.read(READ_CHUNK_SIZE)
+            if not chunk:
+                break
+            total_size += len(chunk)
+            if total_size > MAX_UPLOAD_BYTES:
+                raise ValueError("File size exceeds the 10 MB upload limit.")
+            chunks.append(chunk)
+        contents = b"".join(chunks)
 
         if not contents:
             raise ValueError(
                 "Uploaded document is empty."
-            )
-
-        if len(contents) > 10 * 1024 * 1024:
-            raise ValueError(
-                "File size exceeds the 10 MB upload limit."
             )
 
         # ====================================================
@@ -437,7 +444,6 @@ class DocumentService:
             "filename": filename,
             "content_type": file.content_type or "application/octet-stream",
             "file_size": len(contents),
-            "file_bytes": contents,
             "manifest": manifest,
             "page_count": parsed_document.pages,
             "section_count": len(sections),

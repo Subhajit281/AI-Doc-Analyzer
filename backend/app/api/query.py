@@ -3,9 +3,10 @@ from fastapi import (
     HTTPException,
     Depends,
 )
-from pydantic import BaseModel
+from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, ConfigDict, Field
 from app.services.query_service import query_service
-from app.services.auth_service import auth_service, PLAN_LIMITS
+from app.services.auth_service import auth_service, PLAN_LIMITS, PLAN_TOTAL_LIMITS
 from app.api.auth import get_current_user_required
 from app.core.database import db_manager
 
@@ -16,8 +17,9 @@ router = APIRouter()
 # ============================================================
 
 class QueryRequest(BaseModel):
-    query: str
-    conversation_id: str
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    query: str = Field(min_length=1, max_length=6000)
+    conversation_id: str = Field(min_length=1, max_length=128)
 
 
 # ============================================================
@@ -75,7 +77,10 @@ async def query_document(
     limit = PLAN_LIMITS.get(plan, 10)
     used_today = user_profile.get("query_count_today", 0)
 
-    if used_today >= limit:
+    total_limit = PLAN_TOTAL_LIMITS.get(plan) if is_pro else None
+    if used_today >= limit or (
+        total_limit is not None and int(user_profile.get("plan_query_count") or 0) >= total_limit
+    ):
         raise HTTPException(
             status_code=402,
             detail="QUOTA_EXCEEDED",
@@ -92,29 +97,33 @@ async def query_document(
             detail="Document not found or has expired after 7 days.",
         )
 
+    reserved_user = await db_manager.reserve_query_slot(
+        user_id=user["id"],
+        daily_limit=limit,
+        plan_total_limit=total_limit,
+    )
+    if not reserved_user:
+        raise HTTPException(status_code=402, detail="QUOTA_EXCEEDED")
+
     # --------------------------------------------------------
     # Execute RAG Query (Tiered: Fast 8B for Free, GPT-OSS 120B for Pro)
     # --------------------------------------------------------
 
     try:
-        result = query_service.query(
-            document_id=document_id.strip(),
-            query=request.query.strip(),
-            conversation_id=request.conversation_id.strip(),
-            is_pro=is_pro,
-            manifest=doc.get("manifest"),
+        result = await run_in_threadpool(
+            query_service.query,
+            document_id.strip(),
+            request.query.strip(),
+            request.conversation_id.strip(),
+            is_pro,
+            doc.get("manifest"),
         )
 
         # ----------------------------------------------------
         # Increment quota & persist history
         # ----------------------------------------------------
-        updated_doc = await db_manager.increment_user_query_count(user["id"])
         await db_manager.log_user_query(user["id"], document_id.strip(), request.query.strip())
-
-        if updated_doc:
-            result["user_quota"] = auth_service.serialize_user(updated_doc)
-        else:
-            result["user_quota"] = user_profile
+        result["user_quota"] = auth_service.serialize_user(reserved_user)
 
         return result
 

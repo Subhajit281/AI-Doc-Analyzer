@@ -1,19 +1,15 @@
 import { useState } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
 import {
   X,
   Check,
   Sparkles,
-  Zap,
   ShieldCheck,
   Clock,
   ArrowRight,
-  QrCode,
   CreditCard,
   Lock,
   CheckCircle2,
   AlertCircle,
-  Loader2,
 } from 'lucide-react';
 import { createOrder, verifyPayment } from '../services/api';
 import './PricingModal.css';
@@ -116,11 +112,15 @@ export default function PricingModal({
     }
 
     if (!window.Razorpay) {
-      setErrorMsg('Razorpay Checkout SDK could not be loaded. Please check your network or scan the QR code below.');
+      setErrorMsg('Razorpay Checkout could not be loaded. Please check your network and try again.');
       return;
     }
 
-    const keyId = order.key_id || import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_TeFbpgyeysB2BK';
+    const keyId = order.key_id;
+    if (!keyId) {
+      setErrorMsg('Secure checkout is not configured. Please contact support.');
+      return;
+    }
 
     const options = {
       key: keyId,
@@ -193,36 +193,9 @@ export default function PricingModal({
     try {
       const order = await createOrder(planId, currency);
       setActiveOrder(order);
-      // Automatically trigger Razorpay Standard Checkout modal
-      if (window.Razorpay) {
-        openRazorpayCheckout(order);
-      }
+      openRazorpayCheckout(order);
     } catch (err) {
       setErrorMsg(err.message || 'Unable to initiate order. Please try again.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleConfirmPayment = async () => {
-    if (!activeOrder) return;
-    setIsProcessing(true);
-    setErrorMsg('');
-
-    try {
-      // Complete payment verification
-      const paymentId = `pay_${Date.now()}`;
-      const signature = `sig_${Date.now()}`;
-      const result = await verifyPayment(activeOrder.order_id, paymentId, signature);
-      setIsSuccess(true);
-      setTimeout(() => {
-        setIsSuccess(false);
-        setActiveOrder(null);
-        onPaymentSuccess(result);
-        onClose();
-      }, 1800);
-    } catch (err) {
-      setErrorMsg(err.message || 'Payment verification failed. Please try again.');
     } finally {
       setIsProcessing(false);
     }
@@ -256,38 +229,26 @@ export default function PricingModal({
             </div>
             <h2 className="pricing-success-title">Payment Confirmed!</h2>
             <p className="pricing-success-desc">
-              Your subscription is now active with unlimited document queries.
+              Your subscription is now active with the limits included in your selected plan.
             </p>
           </div>
         ) : activeOrder ? (
-          /* Payment & Dynamic QR Code Screen */
+          /* Secure payment screen */
           <div className="pricing-qr-view">
             <div className="pricing-qr-header">
               <div className="pricing-pill">
                 <Lock size={12} strokeWidth={2} />
                 <span>Encrypted 256-Bit SSL Payment</span>
               </div>
-              <h2 className="pricing-qr-title">Scan to Complete Payment</h2>
+              <h2 className="pricing-qr-title">Complete Your Secure Payment</h2>
               <p className="pricing-qr-subtitle">
                 Pay <strong>{currency === 'USD' ? `$${(activeOrder.amount_display || activeOrder.amount / 100).toFixed(2)}` : `₹${activeOrder.amount_inr || activeOrder.amount / 100}`}</strong> for {activeOrder.plan?.name || 'Subscription'}
               </p>
             </div>
 
-            {/* Dynamic QR Box */}
-            <div className="qr-box-wrapper">
-              <div className="qr-code-frame">
-                <QRCodeSVG
-                  value={activeOrder.upi_qr_data}
-                  size={190}
-                  level="H"
-                  includeMargin={true}
-                />
-              </div>
-              <div className="qr-scan-badge">
-                <QrCode size={13} strokeWidth={2} />
-                <span>Scan with any UPI app (GPay, PhonePe, Paytm, CRED)</span>
-              </div>
-            </div>
+            <p className="pricing-qr-subtitle">
+              Use Razorpay Checkout to pay securely by card, UPI, netbanking, or another method available for your region. Your plan activates only after verified payment confirmation.
+            </p>
 
             {errorMsg && (
               <div className="pricing-error-alert">
@@ -305,23 +266,6 @@ export default function PricingModal({
               >
                 <CreditCard size={15} strokeWidth={2} />
                 <span>Pay with Razorpay Standard Checkout</span>
-              </button>
-
-              <button
-                type="button"
-                className="pricing-verify-btn"
-                onClick={handleConfirmPayment}
-                disabled={isProcessing}
-              >
-                {isProcessing ? (
-                  <>
-                    <Loader2 size={16} className="doc-chip-spin" /> Verifying…
-                  </>
-                ) : (
-                  <>
-                    <Check size={16} strokeWidth={2} /> I have paid {currency === 'USD' ? `$${(activeOrder.amount_display || activeOrder.amount / 100).toFixed(2)}` : `₹${activeOrder.amount_inr || activeOrder.amount / 100}`}
-                  </>
-                )}
               </button>
 
               <button
@@ -440,7 +384,7 @@ export default function PricingModal({
               </div>
               <div className="pricing-trust-item">
                 <Lock size={14} />
-                <span>End-to-End Encrypted</span>
+                <span>Secure Razorpay Checkout</span>
               </div>
               <div className="pricing-trust-item">
                 <Clock size={14} />
@@ -453,4 +397,3 @@ export default function PricingModal({
     </div>
   );
 }
-
