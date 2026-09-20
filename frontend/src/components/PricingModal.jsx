@@ -70,6 +70,27 @@ const PLANS_DATA = [
   },
 ];
 
+const loadRazorpayScript = () => {
+  return new Promise((resolve) => {
+    if (window.Razorpay) {
+      resolve(true);
+      return;
+    }
+    const existing = document.querySelector('script[src*="checkout.razorpay.com"]');
+    if (existing) {
+      existing.addEventListener('load', () => resolve(true));
+      existing.addEventListener('error', () => resolve(false));
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+};
+
 export default function PricingModal({
   isOpen,
   onClose,
@@ -86,6 +107,79 @@ export default function PricingModal({
 
   if (!isOpen) return null;
 
+  const openRazorpayCheckout = async (order) => {
+    if (!order) return;
+
+    let isAvailable = !!window.Razorpay;
+    if (!isAvailable) {
+      isAvailable = await loadRazorpayScript();
+    }
+
+    if (!window.Razorpay) {
+      setErrorMsg('Razorpay Checkout SDK could not be loaded. Please check your network or scan the QR code below.');
+      return;
+    }
+
+    const keyId = order.key_id || import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_TeFbpgyeysB2BK';
+
+    const options = {
+      key: keyId,
+      amount: order.amount, // paise
+      currency: order.currency || 'INR',
+      name: 'DocAI Analyzer',
+      description: `${order.plan?.name || 'Pro'} Subscription`,
+      order_id: order.order_id,
+      prefill: {
+        email: user?.email || '',
+        name: user?.full_name || '',
+      },
+      theme: {
+        color: '#6366f1',
+      },
+      handler: async (response) => {
+        try {
+          setIsProcessing(true);
+          setErrorMsg('');
+          const result = await verifyPayment(
+            response.razorpay_order_id,
+            response.razorpay_payment_id,
+            response.razorpay_signature
+          );
+          setIsSuccess(true);
+          setTimeout(() => {
+            setIsSuccess(false);
+            setActiveOrder(null);
+            onPaymentSuccess(result);
+            onClose();
+          }, 1800);
+        } catch (e) {
+          setErrorMsg(e.message || 'Payment signature verification failed.');
+        } finally {
+          setIsProcessing(false);
+        }
+      },
+      modal: {
+        ondismiss: () => {
+          setIsProcessing(false);
+          setErrorMsg('Payment modal dismissed. You can reopen checkout anytime.');
+        },
+      },
+    };
+
+    try {
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', (response) => {
+        const desc = response.error?.description || response.error?.reason || 'Payment failed. Please try another card or UPI.';
+        setErrorMsg(`Payment Failed: ${desc}`);
+        setIsProcessing(false);
+      });
+      rzp.open();
+    } catch (err) {
+      setErrorMsg(`Failed to open Razorpay modal: ${err.message}`);
+      setIsProcessing(false);
+    }
+  };
+
   const handleSelectPlanAndPay = async (planId) => {
     setErrorMsg('');
     if (!user) {
@@ -99,6 +193,10 @@ export default function PricingModal({
     try {
       const order = await createOrder(planId, currency);
       setActiveOrder(order);
+      // Automatically trigger Razorpay Standard Checkout modal
+      if (window.Razorpay) {
+        openRazorpayCheckout(order);
+      }
     } catch (err) {
       setErrorMsg(err.message || 'Unable to initiate order. Please try again.');
     } finally {
@@ -132,45 +230,7 @@ export default function PricingModal({
 
   const handleRazorpayCheckout = () => {
     if (!activeOrder) return;
-    if (window.Razorpay) {
-      const options = {
-        key: activeOrder.key_id,
-        amount: activeOrder.currency === 'USD' ? Math.round(activeOrder.amount * 100) : Math.round(activeOrder.amount_inr * 100),
-        currency: activeOrder.currency,
-        name: 'DocAI Analyzer',
-        description: `${activeOrder.plan.name} Subscription`,
-        order_id: activeOrder.order_id,
-        handler: async (response) => {
-          try {
-            const result = await verifyPayment(
-              response.razorpay_order_id,
-              response.razorpay_payment_id,
-              response.razorpay_signature
-            );
-            setIsSuccess(true);
-            setTimeout(() => {
-              setIsSuccess(false);
-              setActiveOrder(null);
-              onPaymentSuccess(result);
-              onClose();
-            }, 1800);
-          } catch (e) {
-            setErrorMsg(e.message || 'Verification failed.');
-          }
-        },
-        prefill: {
-          email: user?.email || '',
-        },
-        theme: {
-          color: '#18181b',
-        },
-      };
-      const rzp = new window.Razorpay(options);
-      rzp.open();
-    } else {
-      // If Razorpay SDK script isn't loaded, fallback to QR verification
-      handleConfirmPayment();
-    }
+    openRazorpayCheckout(activeOrder);
   };
 
   return (
@@ -209,7 +269,7 @@ export default function PricingModal({
               </div>
               <h2 className="pricing-qr-title">Scan to Complete Payment</h2>
               <p className="pricing-qr-subtitle">
-                Pay <strong>{currency === 'USD' ? `$${activeOrder.amount.toFixed(2)}` : `₹${activeOrder.amount_inr}`}</strong> for {activeOrder.plan.name}
+                Pay <strong>{currency === 'USD' ? `$${(activeOrder.amount_display || activeOrder.amount / 100).toFixed(2)}` : `₹${activeOrder.amount_inr || activeOrder.amount / 100}`}</strong> for {activeOrder.plan?.name || 'Subscription'}
               </p>
             </div>
 
@@ -239,6 +299,16 @@ export default function PricingModal({
             <div className="pricing-qr-actions">
               <button
                 type="button"
+                className="pricing-card-btn"
+                onClick={handleRazorpayCheckout}
+                disabled={isProcessing}
+              >
+                <CreditCard size={15} strokeWidth={2} />
+                <span>Pay with Razorpay Standard Checkout</span>
+              </button>
+
+              <button
+                type="button"
                 className="pricing-verify-btn"
                 onClick={handleConfirmPayment}
                 disabled={isProcessing}
@@ -249,18 +319,9 @@ export default function PricingModal({
                   </>
                 ) : (
                   <>
-                    <Check size={16} strokeWidth={2} /> I have paid {currency === 'USD' ? `$${activeOrder.amount.toFixed(2)}` : `₹${activeOrder.amount_inr}`}
+                    <Check size={16} strokeWidth={2} /> I have paid {currency === 'USD' ? `$${(activeOrder.amount_display || activeOrder.amount / 100).toFixed(2)}` : `₹${activeOrder.amount_inr || activeOrder.amount / 100}`}
                   </>
                 )}
-              </button>
-
-              <button
-                type="button"
-                className="pricing-card-btn"
-                onClick={handleRazorpayCheckout}
-              >
-                <CreditCard size={15} strokeWidth={2} />
-                <span>Pay via Razorpay Portal</span>
               </button>
 
               <button

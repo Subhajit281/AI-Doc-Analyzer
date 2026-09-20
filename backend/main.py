@@ -74,6 +74,12 @@ app.include_router(
 )
 
 app.include_router(
+    payments_router,
+    prefix="/api",
+    tags=["Payments API"],
+)
+
+app.include_router(
     documents_router,
     prefix="/documents",
     tags=["Documents"],

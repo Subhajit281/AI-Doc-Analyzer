@@ -294,14 +294,18 @@ export async function getPlans() {
   return await response.json();
 }
 
-export async function createOrder(plan, currency = 'INR') {
+export async function createOrder(planOrPayload, currency = 'INR') {
+  const payload = typeof planOrPayload === 'object'
+    ? planOrPayload
+    : { plan: planOrPayload, currency };
+
   const response = await fetch(`${API_URL}/payments/create-order`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...getAuthHeaders(),
     },
-    body: JSON.stringify({ plan, currency }),
+    body: JSON.stringify(payload),
   });
 
   const data = await response.json();
@@ -312,17 +316,21 @@ export async function createOrder(plan, currency = 'INR') {
 }
 
 export async function verifyPayment(orderId, paymentId, signature = '') {
-  const response = await fetch(`${API_URL}/payments/verify`, {
+  const payload = typeof orderId === 'object'
+    ? orderId
+    : {
+        order_id: orderId,
+        payment_id: paymentId,
+        signature: signature,
+      };
+
+  const response = await fetch(`${API_URL}/payments/verify-payment`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...getAuthHeaders(),
     },
-    body: JSON.stringify({
-      order_id: orderId,
-      payment_id: paymentId,
-      signature: signature,
-    }),
+    body: JSON.stringify(payload),
   });
 
   const data = await response.json();

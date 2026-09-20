@@ -2,12 +2,53 @@ import os
 import hmac
 import hashlib
 import uuid
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
+from dotenv import dotenv_values, load_dotenv
 from app.core.database import db_manager, ensure_utc
 
-RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "").strip()
-RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "").strip()
-RAZORPAY_MERCHANT_UPI = os.getenv("RAZORPAY_MERCHANT_UPI", "docai@razorpay").strip()
+_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+load_dotenv(dotenv_path=_env_path)
+load_dotenv()
+
+# Default fallback test credentials in case .env is missing/corrupted
+DEFAULT_TEST_KEY_ID = "rzp_test_TeFbpgyeysB2BK"
+DEFAULT_TEST_KEY_SECRET = "OGTYYGxZ6AkS1IwNoxnkDkUB"
+
+
+def get_razorpay_key_id() -> str:
+    """Dynamically reads RAZORPAY_KEY_ID from .env or os.environ."""
+    if _env_path.exists():
+        vals = dotenv_values(_env_path)
+        val = vals.get("RAZORPAY_KEY_ID")
+        if val and val.strip():
+            return val.strip()
+    return os.getenv("RAZORPAY_KEY_ID", "").strip() or DEFAULT_TEST_KEY_ID
+
+
+def get_razorpay_key_secret() -> str:
+    """Dynamically reads RAZORPAY_KEY_SECRET (or common typos) from .env or os.environ."""
+    if _env_path.exists():
+        vals = dotenv_values(_env_path)
+        for k in ("RAZORPAY_KEY_SECRET", "RAZORPAY_KEY_SECRE", "RAZORPAY_SECRET"):
+            val = vals.get(k)
+            if val and val.strip():
+                return val.strip()
+    for k in ("RAZORPAY_KEY_SECRET", "RAZORPAY_KEY_SECRE", "RAZORPAY_SECRET"):
+        val = os.getenv(k, "").strip()
+        if val:
+            return val
+    return DEFAULT_TEST_KEY_SECRET
+
+
+def get_razorpay_merchant_upi() -> str:
+    if _env_path.exists():
+        vals = dotenv_values(_env_path)
+        val = vals.get("RAZORPAY_MERCHANT_UPI")
+        if val and val.strip():
+            return val.strip()
+    return os.getenv("RAZORPAY_MERCHANT_UPI", "subhajitsarkar281@oksbi").strip()
+
 
 PLANS = {
     "day": {
@@ -57,110 +98,158 @@ PLANS = {
     },
 }
 
+
 class PaymentService:
-    def __init__(self):
-        self._client = None
-        if RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET:
+    def get_client(self):
+        key_id = get_razorpay_key_id()
+        key_secret = get_razorpay_key_secret()
+        if key_id and key_secret:
             try:
                 import razorpay
-                self._client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+                return razorpay.Client(auth=(key_id, key_secret))
             except Exception as e:
-                print(f"[PAYMENT] Razorpay client initialization error: {e}")
+                print(f"[PAYMENT] Razorpay client init error: {e}")
+        return None
 
     def get_plans(self) -> dict:
         return PLANS
 
-    async def create_order(self, user_id: str, plan_id: str, currency: str = "INR") -> dict:
-        if plan_id not in PLANS:
-            raise ValueError(f"Invalid plan: '{plan_id}'. Choose from: day, month, year.")
-
-        plan = PLANS[plan_id]
+    async def create_order(
+        self,
+        user_id: str,
+        plan_id: str | None = None,
+        amount_paise: int | None = None,
+        currency: str = "INR",
+        receipt: str | None = None,
+    ) -> dict:
         currency = currency.upper()
 
-        if currency == "USD":
-            amount_display = plan["price_usd"]
-            amount_cents = int(round(amount_display * 100))
-            order_currency = "USD"
-            inr_equivalent = plan["price_inr"]
+        # Determine amount and plan
+        if amount_paise is not None:
+            if amount_paise < 100:
+                raise ValueError("Minimum amount is 100 paise (₹1.00).")
+            amount_cents = int(amount_paise)
+            matched_plan = None
+            for p in PLANS.values():
+                if int(round(p["price_inr"] * 100)) == amount_cents:
+                    matched_plan = p
+                    plan_id = p["id"]
+                    break
+            plan = matched_plan or {
+                "id": plan_id or "custom",
+                "name": "Pro Subscription",
+                "price_inr": amount_cents / 100.0,
+                "price_usd": round(amount_cents / 8300.0, 2),
+                "duration_days": 30,
+            }
+            amount_display = amount_cents / 100.0
+            inr_equivalent = amount_cents / 100.0
+        elif plan_id:
+            if plan_id not in PLANS:
+                raise ValueError(f"Invalid plan: '{plan_id}'. Choose from: day, month, year.")
+            plan = PLANS[plan_id]
+            if currency == "USD":
+                amount_display = plan["price_usd"]
+                amount_cents = int(round(amount_display * 100))
+                inr_equivalent = plan["price_inr"]
+            else:
+                amount_display = plan["price_inr"]
+                amount_cents = int(round(amount_display * 100))
+                inr_equivalent = plan["price_inr"]
+            if amount_cents < 100:
+                raise ValueError("Minimum amount is 100 paise (₹1.00).")
         else:
+            plan_id = "month"
+            plan = PLANS["month"]
             amount_display = plan["price_inr"]
-            amount_cents = int(round(amount_display * 100))  # in paise
-            order_currency = "INR"
+            amount_cents = int(round(amount_display * 100))
             inr_equivalent = plan["price_inr"]
 
-        order_id = ""
-        if self._client:
-            try:
-                order_data = {
-                    "amount": amount_cents,
-                    "currency": order_currency,
-                    "receipt": f"rcpt_{user_id[:8]}_{int(datetime.now().timestamp())}",
-                    "payment_capture": 1,
-                    "notes": {
-                        "user_id": user_id,
-                        "plan": plan_id,
-                    },
-                }
-                rp_order = self._client.order.create(data=order_data)
-                order_id = rp_order["id"]
-            except Exception as e:
-                print(f"[PAYMENT] Razorpay API order creation warning: {e}. Falling back to standard order ID.")
-                order_id = f"order_{uuid.uuid4().hex[:14]}"
-        else:
-            order_id = f"order_{uuid.uuid4().hex[:14]}"
+        order_receipt = receipt or f"rcpt_{user_id[:8]}_{int(datetime.now().timestamp())}"
 
-        # Generate universal UPI intent string for dynamic QR rendering
+        client = self.get_client()
+        if not client:
+            raise RuntimeError(
+                "Razorpay client initialization failed. Please ensure RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are configured."
+            )
+
+        try:
+            order_data = {
+                "amount": amount_cents,
+                "currency": currency,
+                "receipt": order_receipt,
+                "payment_capture": 1,
+                "notes": {
+                    "user_id": user_id,
+                    "plan": plan_id or "custom",
+                },
+            }
+            rp_order = client.order.create(data=order_data)
+            order_id = rp_order["id"]
+        except Exception as e:
+            raise RuntimeError(f"Razorpay API order creation failed: {e}")
+
+        # Universal UPI string for optional QR display
+        merchant_upi = get_razorpay_merchant_upi()
         upi_string = (
-            f"upi://pay?pa={RAZORPAY_MERCHANT_UPI}&pn=DocAI%20Analyzer"
+            f"upi://pay?pa={merchant_upi}&pn=DocAI%20Analyzer"
             f"&am={inr_equivalent:.2f}&cu=INR&tr={order_id}"
         )
+
+        active_key_id = get_razorpay_key_id()
 
         payment_record = {
             "user_id": user_id,
             "order_id": order_id,
-            "plan": plan_id,
-            "amount": amount_display,
-            "currency": order_currency,
+            "plan": plan_id or "custom",
+            "amount": amount_cents,
+            "currency": currency,
+            "amount_display": amount_display,
             "amount_inr": inr_equivalent,
+            "receipt": order_receipt,
             "status": "created",
             "upi_intent": upi_string,
+            "key_id": active_key_id,
         }
         await db_manager.create_payment_order(payment_record)
 
         return {
             "order_id": order_id,
+            "amount": amount_cents,
+            "currency": currency,
+            "receipt": order_receipt,
+            "key_id": active_key_id,
             "plan": plan,
-            "amount": amount_display,
-            "currency": order_currency,
+            "amount_display": amount_display,
             "amount_inr": inr_equivalent,
-            "key_id": RAZORPAY_KEY_ID or "rzp_test_public_key",
             "upi_qr_data": upi_string,
         }
 
     async def verify_payment(self, order_id: str, payment_id: str, signature: str, user_id: str) -> dict:
+        if not order_id or not payment_id or not signature:
+            raise ValueError("Missing required payment verification fields: order_id, payment_id, and signature are required.")
+
         payment = await db_manager.get_payment_by_order_id(order_id)
         if not payment:
-            raise ValueError("Payment order not found.")
+            raise ValueError(f"Payment order '{order_id}' not found in database.")
 
-        # Signature verification if secret is provided
-        if RAZORPAY_KEY_SECRET:
-            try:
-                msg = f"{order_id}|{payment_id}".encode("utf-8")
-                expected_signature = hmac.new(
-                    RAZORPAY_KEY_SECRET.encode("utf-8"),
-                    msg,
-                    hashlib.sha256,
-                ).hexdigest()
+        key_secret = get_razorpay_key_secret()
+        if not key_secret:
+            raise RuntimeError("RAZORPAY_KEY_SECRET is not configured on the server.")
 
-                if not hmac.compare_digest(expected_signature, signature):
-                    raise ValueError("Payment verification signature mismatch.")
-            except Exception as exc:
-                if "signature mismatch" in str(exc):
-                    raise
-                print(f"[PAYMENT] Signature check error: {exc}")
+        # Signature verification: HMAC-SHA256(order_id + "|" + payment_id, KEY_SECRET)
+        msg = f"{order_id}|{payment_id}".encode("utf-8")
+        expected_signature = hmac.new(
+            key_secret.encode("utf-8"),
+            msg,
+            hashlib.sha256,
+        ).hexdigest()
 
-        # Update payment record
-        updated_payment = await db_manager.mark_payment_paid(
+        if not hmac.compare_digest(expected_signature, signature):
+            raise ValueError("Payment verification failed: Signature mismatch.")
+
+        # Update payment record in database
+        await db_manager.mark_payment_paid(
             order_id=order_id,
             payment_id=payment_id,
             signature=signature,
@@ -168,8 +257,9 @@ class PaymentService:
 
         # Extend user subscription
         plan_id = payment.get("plan", "month")
-        plan = PLANS.get(plan_id, PLANS["month"])
-        duration = timedelta(days=plan["duration_days"])
+        plan = PLANS.get(plan_id, PLANS.get("month", {}))
+        duration_days = plan.get("duration_days", 30)
+        duration = timedelta(days=duration_days)
 
         now_utc = datetime.now(timezone.utc)
         user = await db_manager.get_user_by_id(user_id)
@@ -191,11 +281,12 @@ class PaymentService:
 
         return {
             "status": "success",
+            "message": "Payment verified successfully",
             "order_id": order_id,
             "payment_id": payment_id,
             "plan": plan_id,
             "plan_expires_at": new_expiry.isoformat(),
         }
 
-payment_service = PaymentService()
 
+payment_service = PaymentService()
