@@ -296,12 +296,46 @@ export async function getCurrentUser() {
     });
     if (!response.ok) {
       localStorage.removeItem('docai_token');
+      localStorage.removeItem('docai_session_id');
       return null;
     }
     return await response.json();
   } catch {
     return null;
   }
+}
+
+export async function logoutUser() {
+  try {
+    await apiFetch(`${API_URL}/auth/logout`, {
+      method: 'POST',
+      headers: { ...getAuthHeaders() },
+    });
+  } catch {
+    // Ignore network error on logout
+  } finally {
+    localStorage.removeItem('docai_token');
+    localStorage.removeItem('docai_session_id');
+  }
+}
+
+export async function refreshToken() {
+  try {
+    const response = await apiFetch(`${API_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { ...getAuthHeaders() },
+    });
+    if (response.ok) {
+      const data = await response.json();
+      if (data.token) {
+        localStorage.setItem('docai_token', data.token);
+      }
+      return data;
+    }
+  } catch {
+    // Silently continue
+  }
+  return null;
 }
 
 export async function getPurchaseHistory() {

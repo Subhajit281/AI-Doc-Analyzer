@@ -82,6 +82,10 @@ class DatabaseManager:
                     await self._db.documents.create_index("user_id")
                     await self._db.documents.create_index("document_id")
                     await self._db.documents.create_index("expires_at_dt", expireAfterSeconds=0)
+                    # Sessions collection & 7-day TTL index for automatic session expiration
+                    await self._db.sessions.create_index("session_id", unique=True)
+                    await self._db.sessions.create_index("user_id")
+                    await self._db.sessions.create_index("expires_at_dt", expireAfterSeconds=0)
                 except Exception as exc:
                     print(f"[DATABASE] MongoDB connection failed ({exc}). Using resilient local store.")
                     self._using_mongo = False
@@ -93,7 +97,7 @@ class DatabaseManager:
                     raise RuntimeError("MongoDB is required but could not be initialized.")
                 DATA_DIR.mkdir(parents=True, exist_ok=True)
                 if not FALLBACK_STORE_PATH.exists():
-                    initial_data = {"users": {}, "payments": {}, "queries": [], "otps": {}, "documents": {}}
+                    initial_data = {"users": {}, "payments": {}, "queries": [], "otps": {}, "documents": {}, "sessions": {}}
                     FALLBACK_STORE_PATH.write_text(json.dumps(initial_data, indent=2), encoding="utf-8")
 
             self._initialized = True
@@ -104,7 +108,7 @@ class DatabaseManager:
     def _read_local_store(self) -> dict:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         if not FALLBACK_STORE_PATH.exists():
-            return {"users": {}, "payments": {}, "queries": [], "otps": {}, "documents": {}}
+            return {"users": {}, "payments": {}, "queries": [], "otps": {}, "documents": {}, "sessions": {}}
         try:
             store = json.loads(FALLBACK_STORE_PATH.read_text(encoding="utf-8"))
             store.setdefault("users", {})
@@ -112,9 +116,10 @@ class DatabaseManager:
             store.setdefault("queries", [])
             store.setdefault("otps", {})
             store.setdefault("documents", {})
+            store.setdefault("sessions", {})
             return store
         except Exception:
-            return {"users": {}, "payments": {}, "queries": [], "otps": {}, "documents": {}}
+            return {"users": {}, "payments": {}, "queries": [], "otps": {}, "documents": {}, "sessions": {}}
 
     def _write_local_store(self, data: dict):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -363,6 +368,56 @@ class DatabaseManager:
             result = dict(user)
             result["id"] = user_id
             return result
+
+    async def rollback_query_slot(self, user_id: str) -> dict | None:
+        """Rolls back a reserved query slot if LLM generation fails."""
+        await self.initialize()
+        if not user_id:
+            return None
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if self._using_mongo:
+            from bson import ObjectId
+            try:
+                user_filter = {"_id": ObjectId(user_id)}
+            except Exception:
+                user_filter = {"id": user_id}
+            user = await self.get_user_by_id(user_id)
+            if not user:
+                return None
+            dec = {}
+            if int(user.get("query_count") or 0) > 0:
+                dec["query_count"] = -1
+            if int(user.get("query_count_today") or 0) > 0:
+                dec["query_count_today"] = -1
+            if int(user.get("plan_query_count") or 0) > 0:
+                dec["plan_query_count"] = -1
+            if dec:
+                updated = await self._db.users.find_one_and_update(
+                    user_filter,
+                    {"$inc": dec, "$set": {"updated_at": now_iso}},
+                    return_document=ReturnDocument.AFTER,
+                )
+                if updated:
+                    updated["id"] = str(updated.pop("_id"))
+                return updated
+            return user
+
+        async with self._store_lock:
+            store = self._read_local_store()
+            user = store.get("users", {}).get(user_id)
+            if not user:
+                return None
+            if int(user.get("query_count") or 0) > 0:
+                user["query_count"] = int(user.get("query_count") or 0) - 1
+            if int(user.get("query_count_today") or 0) > 0:
+                user["query_count_today"] = int(user.get("query_count_today") or 0) - 1
+            if int(user.get("plan_query_count") or 0) > 0:
+                user["plan_query_count"] = int(user.get("plan_query_count") or 0) - 1
+            user["updated_at"] = now_iso
+            self._write_local_store(store)
+            res = dict(user)
+            res["id"] = user_id
+            return res
 
     # --------------------------------------------------------
     # Payment & Subscription Operations
@@ -764,6 +819,116 @@ class DatabaseManager:
             if to_delete:
                 self._write_local_store(store)
         return expired_ids
+
+    # --------------------------------------------------------
+    # Session Operations (7-Day Expiration & Revocation)
+    # --------------------------------------------------------
+    async def create_session(
+        self,
+        user_id: str,
+        session_id: str,
+        expires_at_dt: datetime,
+        metadata: dict | None = None,
+    ) -> dict:
+        await self.initialize()
+        now = datetime.now(timezone.utc)
+        record = {
+            "session_id": session_id,
+            "user_id": user_id,
+            "created_at": now.isoformat(),
+            "expires_at": expires_at_dt.isoformat(),
+            "expires_at_dt": expires_at_dt,
+            "is_revoked": False,
+            "metadata": metadata or {},
+        }
+        if self._using_mongo:
+            await self._db.sessions.update_one(
+                {"session_id": session_id},
+                {"$set": record},
+                upsert=True,
+            )
+            record.pop("_id", None)
+            return record
+        else:
+            async with self._store_lock:
+                store = self._read_local_store()
+                local_rec = dict(record)
+                local_rec["expires_at_dt"] = expires_at_dt.isoformat()
+                store.setdefault("sessions", {})[session_id] = local_rec
+                self._write_local_store(store)
+                return record
+
+    async def get_session(self, session_id: str) -> dict | None:
+        await self.initialize()
+        now = datetime.now(timezone.utc)
+        if not session_id:
+            return None
+        if self._using_mongo:
+            session = await self._db.sessions.find_one({"session_id": session_id})
+            if not session:
+                return None
+            session["id"] = str(session.pop("_id", ""))
+            if session.get("is_revoked"):
+                return None
+            exp_dt = ensure_utc(session.get("expires_at_dt") or session.get("expires_at"))
+            if exp_dt and exp_dt < now:
+                await self._db.sessions.delete_one({"session_id": session_id})
+                return None
+            return session
+        else:
+            store = self._read_local_store()
+            session = store.get("sessions", {}).get(session_id)
+            if not session or session.get("is_revoked"):
+                return None
+            exp_dt = ensure_utc(session.get("expires_at"))
+            if exp_dt and exp_dt < now:
+                del store["sessions"][session_id]
+                self._write_local_store(store)
+                return None
+            return dict(session)
+
+    async def revoke_session(self, session_id: str) -> bool:
+        await self.initialize()
+        if not session_id:
+            return False
+        if self._using_mongo:
+            res = await self._db.sessions.update_one(
+                {"session_id": session_id},
+                {"$set": {"is_revoked": True, "revoked_at": datetime.now(timezone.utc).isoformat()}}
+            )
+            return res.modified_count > 0
+        else:
+            async with self._store_lock:
+                store = self._read_local_store()
+                if session_id in store.get("sessions", {}):
+                    store["sessions"][session_id]["is_revoked"] = True
+                    store["sessions"][session_id]["revoked_at"] = datetime.now(timezone.utc).isoformat()
+                    self._write_local_store(store)
+                    return True
+                return False
+
+    async def revoke_user_sessions(self, user_id: str) -> int:
+        await self.initialize()
+        if not user_id:
+            return 0
+        if self._using_mongo:
+            res = await self._db.sessions.update_many(
+                {"user_id": user_id},
+                {"$set": {"is_revoked": True, "revoked_at": datetime.now(timezone.utc).isoformat()}}
+            )
+            return res.modified_count
+        else:
+            async with self._store_lock:
+                store = self._read_local_store()
+                count = 0
+                for sid, s in store.get("sessions", {}).items():
+                    if s.get("user_id") == user_id and not s.get("is_revoked"):
+                        s["is_revoked"] = True
+                        s["revoked_at"] = datetime.now(timezone.utc).isoformat()
+                        count += 1
+                if count > 0:
+                    self._write_local_store(store)
+                return count
 
 # Singleton
 db_manager = DatabaseManager()

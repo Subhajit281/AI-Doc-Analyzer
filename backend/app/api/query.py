@@ -127,19 +127,26 @@ async def query_document(
 
         return result
 
+    except HTTPException:
+        await db_manager.rollback_query_slot(user["id"])
+        raise
+
     except FileNotFoundError as exc:
+        await db_manager.rollback_query_slot(user["id"])
         raise HTTPException(
             status_code=404,
             detail=str(exc),
         )
 
     except ValueError as exc:
+        await db_manager.rollback_query_slot(user["id"])
         raise HTTPException(
             status_code=400,
             detail=str(exc),
         )
 
     except Exception as exc:
+        await db_manager.rollback_query_slot(user["id"])
         print(
             f"Query error for document {document_id}: {repr(exc)}"
         )

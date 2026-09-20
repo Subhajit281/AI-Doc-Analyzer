@@ -28,42 +28,38 @@ async def upload_document(
     if not file.filename:
         raise HTTPException(
             status_code=400,
-            detail="No filename provided"
+            detail="No filename provided",
         )
 
     # ============================================================
     # Process document
     # ============================================================
 
+    client_key = "unknown"
+    if request:
+        client_key = (
+            request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or request.headers.get("cf-connecting-ip", "").strip()
+            or (request.client.host if request.client else "unknown")
+        )
+    rate_limiter.check(f"upload:{user['id']}:{client_key}", limit=20, window_seconds=3600)
+
     try:
-
-        client_key = request.client.host if request and request.client else "unknown"
-        rate_limiter.check(f"upload:{user['id']}:{client_key}", limit=20, window_seconds=3600)
-
         result = await process_document(file, user_id=user["id"])
-
         return result
 
-    # ============================================================
-    # Validation / expected processing error
-    # ============================================================
-
+    except HTTPException:
+        raise
     except ValueError as exc:
-
         raise HTTPException(
             status_code=400,
             detail=str(exc)
         )
-
-    # ============================================================
-    # Unexpected error
-    # ============================================================
-
     except Exception:
         logger.exception("Document processing failed")
         raise HTTPException(
             status_code=500,
-            detail="Document processing failed. Please try another supported file."
+            detail="Document processing failed. Please try another supported file.",
         )
 
 

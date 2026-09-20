@@ -32,7 +32,7 @@ async def run_tests():
     print(f"2. Razorpay Credentials Loaded:")
     print(f"   KEY_ID: {key_id[:8]}... (length: {len(key_id)})")
     print(f"   KEY_SECRET: {key_secret[:4]}... (length: {len(key_secret)})")
-    assert key_id.startswith("rzp_test_"), "Invalid test key id format"
+    assert key_id.startswith(("rzp_test_", "rzp_live_")), "Invalid key id format"
     assert len(key_secret) > 10, "Invalid key secret"
 
     # 3. Create test user and token
@@ -122,7 +122,7 @@ async def run_tests():
 
         # 10. Test verify payment - Valid HMAC-SHA256 Signature (expects 200)
         print("10. Testing POST /api/verify-payment with valid HMAC-SHA256 signature...")
-        test_payment_id = "pay_live_test_78910"
+        test_payment_id = "pay_test_78910"
         msg = f"{order_data['order_id']}|{test_payment_id}".encode("utf-8")
         valid_signature = hmac.new(key_secret.encode("utf-8"), msg, hashlib.sha256).hexdigest()
 

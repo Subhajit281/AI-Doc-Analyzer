@@ -20,20 +20,26 @@ class VerifyOtpRequest(RequestModel):
     email: str = Field(min_length=3, max_length=254)
     otp: str = Field(min_length=6, max_length=6)
     purpose: Literal["login", "signup"] = "login"
-    password: str | None = Field(default=None, min_length=8, max_length=128)
+    password: str | None = Field(default=None, min_length=6, max_length=128)
     full_name: str = Field(default="", max_length=100)
 
 class SignupRequest(RequestModel):
     email: str = Field(min_length=3, max_length=254)
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=6, max_length=128)
     full_name: str = Field(default="", max_length=100)
 
 class LoginRequest(RequestModel):
     email: str = Field(min_length=3, max_length=254)
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=6, max_length=128)
 
 
 def _client_key(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip:
+        return cf_ip.strip()
     return request.client.host if request.client else "unknown"
 
 async def get_current_user_optional(authorization: str | None = Header(default=None)) -> dict | None:
@@ -63,6 +69,8 @@ async def send_otp(req: SendOtpRequest, request: Request):
             email=req.email,
             purpose=req.purpose,
         )
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
@@ -82,7 +90,12 @@ async def verify_otp(req: VerifyOtpRequest, request: Request):
         return {
             "token": token,
             "user": user,
+            "session_id": user.get("session_id"),
+            "expires_in_days": user.get("session_expires_in_days", 7),
+            "expires_at": user.get("session_expires_at"),
         }
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
@@ -100,7 +113,12 @@ async def signup(req: SignupRequest, request: Request):
         return {
             "token": token,
             "user": user,
+            "session_id": user.get("session_id"),
+            "expires_in_days": user.get("session_expires_in_days", 7),
+            "expires_at": user.get("session_expires_at"),
         }
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
@@ -118,11 +136,45 @@ async def login(req: LoginRequest, request: Request):
         return {
             "token": token,
             "user": user,
+            "session_id": user.get("session_id"),
+            "expires_in_days": user.get("session_expires_in_days", 7),
+            "expires_at": user.get("session_expires_at"),
         }
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
     except Exception:
         raise HTTPException(status_code=500, detail="Unable to authenticate right now.")
+
+@router.post("/logout")
+async def logout(authorization: str | None = Header(default=None)):
+    """Revokes the current active session in database and invalidates the session token."""
+    if authorization:
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            await auth_service.logout(parts[1])
+    return {"message": "Logged out successfully", "status": "ok"}
+
+@router.post("/refresh")
+async def refresh_session(authorization: str | None = Header(default=None)):
+    """Refreshes an active session, issuing a fresh 7-day token."""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Invalid token format.")
+    refreshed = await auth_service.refresh_session(parts[1])
+    if not refreshed:
+        raise HTTPException(status_code=401, detail="Session expired or revoked. Please log in again.")
+    user, new_token, new_sid, expires_at = refreshed
+    return {
+        "token": new_token,
+        "user": user,
+        "session_id": new_sid,
+        "expires_in_days": 7,
+        "expires_at": expires_at,
+    }
 
 @router.get("/me")
 async def get_profile(user: dict = Depends(get_current_user_required)):

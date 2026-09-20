@@ -18,9 +18,32 @@ import jwt
 from datetime import datetime, timezone, timedelta
 from app.core.database import db_manager
 
-JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
+_DEV_SECRET_FILE = Path(__file__).resolve().parent.parent.parent / "data" / ".jwt_secret"
+
+def get_jwt_secret() -> str:
+    """Dynamically retrieves JWT_SECRET from environment, .env file, or a persistent local dev secret."""
+    secret = os.getenv("JWT_SECRET", "").strip()
+    if secret:
+        return secret
+    if _env_path.exists():
+        from dotenv import dotenv_values
+        vals = dotenv_values(_env_path)
+        secret = (vals.get("JWT_SECRET") or "").strip()
+        if secret:
+            return secret
+    # Safe persistent fallback for local/test development
+    try:
+        _DEV_SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if _DEV_SECRET_FILE.exists():
+            return _DEV_SECRET_FILE.read_text(encoding="utf-8").strip()
+        new_sec = secrets.token_hex(32)
+        _DEV_SECRET_FILE.write_text(new_sec, encoding="utf-8")
+        return new_sec
+    except Exception:
+        return "docai-secure-dev-session-fallback-secret-2026"
+
 JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_DAYS = 30
+ACCESS_TOKEN_EXPIRE_DAYS = 7  # Strict 7-day session ID expiration
 FREE_QUERY_LIMIT = 10
 OTP_EXPIRY_MINUTES = 10
 MAX_OTP_ATTEMPTS = 3
@@ -72,23 +95,45 @@ class AuthService:
         except Exception:
             return False
 
-    def create_access_token(self, user_id: str, email: str) -> str:
-        if not JWT_SECRET:
+    def create_access_token(self, user_id: str, email: str, session_id: str | None = None) -> str:
+        secret = get_jwt_secret()
+        if not secret:
             raise RuntimeError("JWT_SECRET must be configured before issuing access tokens.")
+        session_id = session_id or secrets.token_hex(16)
         expire = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
         payload = {
             "sub": user_id,
             "email": email,
+            "session_id": session_id,
             "exp": expire,
             "iat": datetime.now(timezone.utc),
         }
-        return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+        return jwt.encode(payload, secret, algorithm=JWT_ALGORITHM)
+
+    async def create_session_and_token(
+        self,
+        user_id: str,
+        email: str,
+        session_id: str | None = None,
+    ) -> tuple[str, str, datetime]:
+        session_id = session_id or secrets.token_hex(16)
+        expire = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
+        token = self.create_access_token(user_id, email, session_id=session_id)
+        # Store active session in database with 7-day TTL expiration
+        await db_manager.create_session(
+            user_id=user_id,
+            session_id=session_id,
+            expires_at_dt=expire,
+            metadata={"email": email},
+        )
+        return token, session_id, expire
 
     def decode_access_token(self, token: str) -> dict | None:
-        if not JWT_SECRET:
+        secret = get_jwt_secret()
+        if not secret:
             return None
         try:
-            return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            return jwt.decode(token, secret, algorithms=[JWT_ALGORITHM])
         except Exception:
             return None
 
@@ -356,11 +401,15 @@ class AuthService:
                     "password_hash": self.hash_password(password),
                 }) or user
 
-        token = self.create_access_token(user["id"], user["email"])
-        return self.serialize_user(user), token
+        token, session_id, expire = await self.create_session_and_token(user["id"], user["email"])
+        serialized = self.serialize_user(user)
+        serialized["session_id"] = session_id
+        serialized["session_expires_at"] = expire.isoformat()
+        serialized["session_expires_in_days"] = ACCESS_TOKEN_EXPIRE_DAYS
+        return serialized, token
 
     # ========================================================
-    # Legacy Direct Password Methods
+    # Direct Password Methods
     # ========================================================
     async def register(self, email: str, password: str, full_name: str = "") -> tuple[dict, str]:
         if not email or "@" not in email:
@@ -370,8 +419,12 @@ class AuthService:
 
         password_hash = self.hash_password(password)
         user = await db_manager.create_user(email, password_hash, full_name)
-        token = self.create_access_token(user["id"], user["email"])
-        return self.serialize_user(user), token
+        token, session_id, expire = await self.create_session_and_token(user["id"], user["email"])
+        serialized = self.serialize_user(user)
+        serialized["session_id"] = session_id
+        serialized["session_expires_at"] = expire.isoformat()
+        serialized["session_expires_in_days"] = ACCESS_TOKEN_EXPIRE_DAYS
+        return serialized, token
 
     async def authenticate(self, email: str, password: str) -> tuple[dict, str]:
         user = await db_manager.get_user_by_email(email)
@@ -381,17 +434,52 @@ class AuthService:
         if not self.verify_password(password, user.get("password_hash", "")):
             raise ValueError("Invalid email or password.")
 
-        token = self.create_access_token(user["id"], user["email"])
-        return self.serialize_user(user), token
+        token, session_id, expire = await self.create_session_and_token(user["id"], user["email"])
+        serialized = self.serialize_user(user)
+        serialized["session_id"] = session_id
+        serialized["session_expires_at"] = expire.isoformat()
+        serialized["session_expires_in_days"] = ACCESS_TOKEN_EXPIRE_DAYS
+        return serialized, token
 
     async def get_user_from_token(self, token: str) -> dict | None:
         payload = self.decode_access_token(token)
         if not payload or "sub" not in payload:
             return None
 
+        # Check session validity in database if session_id exists
+        session_id = payload.get("session_id")
+        if session_id:
+            session = await db_manager.get_session(session_id)
+            if not session or session.get("is_revoked"):
+                return None
+
         user = await db_manager.check_and_refresh_quota(payload["sub"])
         if not user:
             return None
-        return self.serialize_user(user)
+        serialized = self.serialize_user(user)
+        if session_id:
+            serialized["session_id"] = session_id
+        return serialized
+
+    async def logout(self, token: str) -> bool:
+        payload = self.decode_access_token(token)
+        if payload and "session_id" in payload:
+            return await db_manager.revoke_session(payload["session_id"])
+        return False
+
+    async def refresh_session(self, token: str) -> tuple[dict, str, str, str] | None:
+        payload = self.decode_access_token(token)
+        if not payload or "sub" not in payload:
+            return None
+        user = await db_manager.check_and_refresh_quota(payload["sub"])
+        if not user:
+            return None
+        old_sid = payload.get("session_id")
+        if old_sid:
+            await db_manager.revoke_session(old_sid)
+        new_token, new_sid, new_exp = await self.create_session_and_token(user["id"], user["email"])
+        serialized = self.serialize_user(user)
+        serialized["session_id"] = new_sid
+        return serialized, new_token, new_sid, new_exp.isoformat()
 
 auth_service = AuthService()

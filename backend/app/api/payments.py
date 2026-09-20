@@ -9,13 +9,15 @@ router = APIRouter()
 
 
 class CreateOrderRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    plan: Literal["day", "month", "year"]
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    plan: Literal["day", "month", "year"] | None = None
+    amount: int | float | None = None
     currency: Literal["INR", "USD"] = "INR"
+    receipt: str | None = None
 
 
 class VerifyPaymentRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
     # Support both custom and standard Razorpay checkout response field names
     order_id: str | None = None
     payment_id: str | None = None
@@ -30,6 +32,19 @@ async def get_plans():
     return payment_service.get_plans()
 
 
+@router.get("/status/{order_id}")
+async def get_order_status(
+    order_id: str,
+    user: dict = Depends(get_current_user_required),
+):
+    try:
+        return await payment_service.get_payment_status(order_id=order_id.strip(), user_id=user["id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Unable to retrieve payment status.")
+
+
 @router.post("/create-order")
 async def create_order(
     req: CreateOrderRequest,
@@ -39,8 +54,12 @@ async def create_order(
         return await payment_service.create_order(
             user_id=user["id"],
             plan_id=req.plan,
+            amount_paise=req.amount,
             currency=req.currency,
+            receipt=req.receipt,
         )
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
@@ -72,6 +91,8 @@ async def verify_payment(
             signature=signature,
             user_id=user["id"],
         )
+    except HTTPException:
+        raise
     except ValueError as exc:
         # Signature mismatch or order not found -> 400
         raise HTTPException(status_code=400, detail=str(exc))
@@ -79,3 +100,4 @@ async def verify_payment(
         raise HTTPException(status_code=500, detail=str(exc))
     except Exception:
         raise HTTPException(status_code=500, detail="Unable to verify the payment right now.")
+
